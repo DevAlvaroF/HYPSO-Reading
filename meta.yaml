@@ -24,7 +24,7 @@ requirements:
     - matplotlib
     - geopandas
     - rasterio
-    - osgeo
+    - gdal
     - pyproj
   run:
     - python

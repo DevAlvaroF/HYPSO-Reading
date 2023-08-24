@@ -23,7 +23,7 @@ dependencies=[
   "matplotlib",
   "geopandas",
   "rasterio",
-  "osgeo",
+  "gdal",
   "pyproj",
 ]
 
