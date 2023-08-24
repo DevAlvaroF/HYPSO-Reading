@@ -6,7 +6,7 @@ build-backend="setuptools.build_meta"
 name="hypsoreader"
 version = "0.1.0"
 authors = [
-  { name="Alvaro Flores-Romero", email="alvaro.f.romero@ntnu.no" },
+  { name="Alvaro Flores-Romero", email="demo@ntnu.no" },
 ]
 description = "HYPSO Visualization tool"
 readme = "README.md"
