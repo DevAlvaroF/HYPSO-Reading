@@ -1,0 +1,32 @@
+[build-system]
+requires=["setuptools>=61.0"]
+build-backend="setuptools.build_meta"
+
+[project]
+name="hypsoreader"
+version = "0.1.0"
+authors = [
+  { name="Alvaro Flores-Romero", email="alvaro.f.romero@ntnu.no" },
+]
+description = "HYPSO Visualization tool"
+readme = "README.md"
+requires-python = ">=3.9"
+classifiers = [
+    "Programming Language :: Python :: 3.9",
+    "License ::  MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies=[
+  "numpy>=1.24",
+  "cartopy",
+  "pandas",
+  "importlib",
+  "os",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/NTNU-SmallSat-Lab/hypso"
+"Bug Tracker" = "https://github.com/NTNU-SmallSat-Lab/hypso/issues"
+
+[tool.setuptools]
+include-package-data=true
