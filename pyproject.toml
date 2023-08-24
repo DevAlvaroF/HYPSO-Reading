@@ -11,6 +11,7 @@ authors = [
 description = "HYPSO Visualization tool"
 readme = "README.md"
 requires-python = ">=3.9"
+license='MIT'
 classifiers = [
     "Programming Language :: Python :: 3.9",
     "License ::  MIT License",
