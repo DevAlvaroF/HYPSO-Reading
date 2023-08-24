@@ -6,7 +6,7 @@ package:
   version: {{ version }}
 
 source:
-  url: https://github.com/DevAlvaroF/HYPSO-Reading/archive/v0.0.3.tar.gz
+  url: https://github.com/DevAlvaroF/HYPSO-Reading/archive/v0.1.0.tar.gz
   sha256: 841fc860539e3d8c6ced4cd09c3305b7c085feb8650b460e72285e55d926a0bf
 
 build:
@@ -40,6 +40,13 @@ test:
 about:
   license: GPL-2.0
   license_file: LICENSE
+  home: https://github.com/DevAlvaroF/HYPSO-Reading
+  summary: 'Visualization tool for the HYPSO satellite'
+  description: |
+    hypsoreader is a simple, fast, visualization tool for the hyperspectral
+    images taken by the HYPSO mission from the Norwegian University of Science and
+    Technology (NTNU) for Python 3.9
+
 
 extra:
   recipe-maintainers:
