@@ -6,28 +6,30 @@ build-backend="setuptools.build_meta"
 name="hypsoreader"
 version = "0.1.0"
 authors = [
-  { name="Alvaro Flores-Romero", email="demo@ntnu.no" },
+  { name="Alvaro Flores", email="alvaro.f.romero@ntnu.no" },
 ]
 description = "HYPSO Visualization tool"
 readme = "README.md"
 requires-python = ">=3.9"
-license='MIT'
 classifiers = [
     "Programming Language :: Python :: 3.9",
-    "License ::  MIT License",
+    "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     "Operating System :: OS Independent",
 ]
 dependencies=[
   "numpy>=1.24",
   "cartopy",
   "pandas",
-  "importlib",
-  "os",
+  "matplotlib",
+  "geopandas",
+  "rasterio",
+  "osgeo",
+  "pyproj",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/NTNU-SmallSat-Lab/hypso"
-"Bug Tracker" = "https://github.com/NTNU-SmallSat-Lab/hypso/issues"
+"Homepage" = "https://github.com/DevAlvaroF/HYPSO-Reading"
+"Bug Tracker" = "https://github.com/DevAlvaroF/HYPSO-Reading/issues"
 
 [tool.setuptools]
 include-package-data=true

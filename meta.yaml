@@ -1,4 +1,4 @@
-{% set name = "HYPSO-Reading" %}{% set version = "0.0.3" %}
+{% set name = "HYPSO-Reading" %}{% set version = "0.1.0" %}
 
 
 package:
@@ -43,4 +43,4 @@ about:
 
 extra:
   recipe-maintainers:
-    - alvarofpp
+    - DevAlvaroF
