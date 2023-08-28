@@ -57,6 +57,9 @@ include = [
 [tool.setuptools_scm]
 version_file = "hypsoreader/_version.py"
 
+[tool.setuptools.dynamic]
+version = {attr = "hypsoreader.VERSION"}
+
 # -- coverage.py
 
 [tool.coverage.run]
