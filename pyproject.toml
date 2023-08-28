@@ -1,4 +1,4 @@
-.bottom# -- build
+# -- build
 
 [build-system]
 requires=[
