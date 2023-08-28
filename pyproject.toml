@@ -12,7 +12,6 @@ build-backend="setuptools.build_meta"
 
 [project]
 name="hypsoreader"
-version = "0.1.2"
 authors = [
   { name="Alvaro Flores", email="alvaro.f.romero@ntnu.no" },
 ]
@@ -23,7 +22,6 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "License :: OSI Approved :: GNU General Public License v2 (GPLv2)",
     "Operating System :: OS Independent",
-    "Programming Language :: Python :: 3.9",
 ]
 
 requires-python = ">=3.9"
@@ -54,4 +52,17 @@ include-package-data=true
 [tool.setuptools.packages.find]
 include = [
   "hypsoreader*",
+]
+
+[tool.setuptools_scm]
+write_to = "hypsoreader/_version.py"
+
+# -- coverage.py
+
+[tool.coverage.run]
+source = [ "hypsoreader" ]
+omit = [
+  # don't report coverage for _version.py
+  # (generated automatically by setuptools-scm)
+  "*/_version.py",
 ]
