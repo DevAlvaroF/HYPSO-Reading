@@ -54,7 +54,7 @@ include = [
   "hypsoreader*",
 ]
 
-[tool.setuptools_scm]
+# [tool.setuptools_scm]
 
 [tool.setuptools.dynamic]
 version = {attr = "hypsoreader.__version__"}
