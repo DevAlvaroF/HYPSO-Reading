@@ -62,10 +62,10 @@ version_file = "hypsoreader/_version.py"
 
 # -- coverage.py
 
-[tool.coverage.run]
-source = [ "hypsoreader" ]
-omit = [
-  # don't report coverage for _version.py
-  # (generated automatically by setuptools-scm)
-  "*/_version.py",
-]
+# [tool.coverage.run]
+# source = [ "hypsoreader" ]
+# omit = [
+#  # don't report coverage for _version.py
+#  # (generated automatically by setuptools-scm)
+#  "*/_version.py",
+#]
