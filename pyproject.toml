@@ -1,4 +1,4 @@
-# -- build
+.bottom# -- build
 
 [build-system]
 requires=[
@@ -55,7 +55,7 @@ include = [
 ]
 
 [tool.setuptools_scm]
-write_to = "hypsoreader/_version.py"
+version_file = "hypsoreader/_version.py"
 
 # -- coverage.py
 
