@@ -1,59 +1,58 @@
 # -----------------------------------------------------------------------------
 #                               IMPORT LIBRARIES
 # -----------------------------------------------------------------------------
+from scipy.spatial import ConvexHull, Delaunay
+from scipy.interpolate import interp1d
+import numpy as np
+from matplotlib import ticker
+from mpl_toolkits import axes_grid1
+from matplotlib import pyplot as plt
+from PIL import Image
+import matplotlib.pyplot as plt
+from matplotlib import ticker as mticker
+import matplotlib as mpl
+from matplotlib import colors
+import folium
+import spectral.io.envi as envi
+import netCDF4  # To get data of .NC file with metadata variables
+import xarray as xr  # To map to .NC metadata file
+from shapely.geometry import Polygon, box
+from pyproj import CRS, Transformer
+import pyproj
+from osgeo import gdal, osr
+import rasterio as rio
+import geopandas as gpd
+import cartopy.feature as cf
+import cartopy.crs as ccrs
+from natsort import natsorted
+from datetime import datetime
+import webbrowser
+import pandas as pd
+import pathlib
+from os.path import isfile, join
+from os import listdir
+import os
+import json
+import glob
 import tkinter
 import matplotlib
 
 matplotlib.use('TkAgg')
 
 # File Manipulation
-import glob
-import json
-import os
-from os import listdir
-from os.path import isfile, join
-import pathlib
-import pandas as pd
 
-import webbrowser
-from datetime import datetime
-from natsort import natsorted
 
 # GIS
-import cartopy.crs as ccrs
-import cartopy.feature as cf
-import geopandas as gpd
-import rasterio as rio
-from osgeo import gdal, osr
-import pyproj
-from pyproj import CRS, Transformer
-from shapely.geometry import Polygon, box
 
 # Read GSI Data
-import xarray as xr  # To map to .NC metadata file
-import netCDF4  # To get data of .NC file with metadata variables
-import spectral.io.envi as envi
 # from sentinelsat.sentinel import SentinelAPI
 
 # Plot and Image Gen
-import folium
-from matplotlib import colors
-import matplotlib as mpl
-from matplotlib import ticker as mticker
-import matplotlib.pyplot as plt
-from PIL import Image
 
 plt.rcParams['figure.facecolor'] = 'white'
 
-from matplotlib import pyplot as plt
-from mpl_toolkits import axes_grid1
-from matplotlib import ticker
-from matplotlib import colors
 
 # Numerical
-import numpy as np
-from scipy.interpolate import interp1d
-from scipy.spatial import ConvexHull, Delaunay
 
 
 class SatPlot:
@@ -180,9 +179,11 @@ class SatPlot:
         transformed_img_extent = None
         if hasattr(self.satellite, "projection_metadata"):
             inproj = self.satellite.projection_metadata['inproj']
-            extent_lon_min, extent_lon_max, extent_lat_min, extent_lat_max = extent_lon_lat(inproj)
+            extent_lon_min, extent_lon_max, extent_lat_min, extent_lat_max = extent_lon_lat(
+                inproj)
             if overlapSatImg:
-                transformed_img_extent, projection_img = image_extent_lon_lat(inproj)
+                transformed_img_extent, projection_img = image_extent_lon_lat(
+                    inproj)
         elif hasattr(self.satellite, "projection_metadata_from_Hypso"):
             if self.satellite.projection_metadata_from_Hypso is None:
                 if special_extent is None:
@@ -248,7 +249,8 @@ class SatPlot:
             if full_log > upper_limit_chl:
                 upper_limit_chl = full_log
 
-        chl_range = [lower_limit_chl, upper_limit_chl]  # old: [0.01, 100] [0.3, 1]
+        # old: [0.01, 100] [0.3, 1]
+        chl_range = [lower_limit_chl, upper_limit_chl]
         # chl_range = [0.01, 100]  # OLD
         # chl_range = [0.3, 1] # OLD
 
@@ -260,10 +262,13 @@ class SatPlot:
                            cmap=plt.cm.jet, transform=ccrs.PlateCarree(), norm=norm, zorder=0)
 
         # Colourmap with axes to match figure size
-        cbar = plt.colorbar(im, location=self.color_bar_pos, shrink=1, ax=ax, pad=0.05)
+        cbar = plt.colorbar(im, location=self.color_bar_pos,
+                            shrink=1, ax=ax, pad=0.05)
 
-        cbar.ax.yaxis.set_major_formatter(ticker.FuncFormatter(self.myLogFormat))
-        cbar.ax.xaxis.set_major_formatter(ticker.FuncFormatter(self.myLogFormat))
+        cbar.ax.yaxis.set_major_formatter(
+            ticker.FuncFormatter(self.myLogFormat))
+        cbar.ax.xaxis.set_major_formatter(
+            ticker.FuncFormatter(self.myLogFormat))
 
         # cbar.ax.yaxis.set_minor_formatter(mticker.ScalarFormatter(useMathText=False, useOffset=False))
         # cbar.ax.xaxis.set_minor_formatter(mticker.ScalarFormatter(useMathText=False, useOffset=False))

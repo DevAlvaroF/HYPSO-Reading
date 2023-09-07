@@ -5,6 +5,7 @@ from matplotlib import colors
 import warnings
 
 import matplotlib.pyplot as plt
+from matplotlib import ticker
 
 # GIS
 import cartopy.crs as ccrs
@@ -58,6 +59,19 @@ def image_extent(inproj_value, lat, lon):
     return transformed_img_extent, projection_img
 
 
+def tick_log_formatter(y, pos):
+    # Find the number of decimal places required
+    decimalplaces = int(np.maximum(-np.log10(y), 0))  # =0 for numbers >=1
+    if decimalplaces == 0:
+        # Insert that number into a format string
+        formatstring = '{{:.{:1d}f}}'.format(decimalplaces)
+        # Return the formatted tick label
+        return formatstring.format(y)
+    else:
+        formatstring = '{:2.1e}'.format(y)
+        return formatstring
+
+
 def show_rgb(satellite_obj, plotTitle="RGB Image"):
 
     lat = satellite_obj.info["lat"]
@@ -104,8 +118,6 @@ def show_rgb(satellite_obj, plotTitle="RGB Image"):
     ax.add_feature(cf.BORDERS.with_scale("10m"), lw=0.3)
     # ax.add_feature(cf.LAND, zorder=100, edgecolor='k')  # Covers Data in land
 
-    warnings.resetwarnings()
-
     # Plot Image
     rgb_array = satellite_obj.projection_metadata["data"][:3, :, :]
 
@@ -120,6 +132,8 @@ def show_rgb(satellite_obj, plotTitle="RGB Image"):
 
     plt.title(plotTitle)
     plt.show()
+
+    warnings.resetwarnings()
 
 
 def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentration"):
@@ -150,7 +164,11 @@ def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentrat
     gl.xlabel_style = {"size": 7}
     gl.ylabel_style = {"size": 7}
 
+    # TODO: Warnings are disabled as a rounding error with shapely causes an "no intersection warning". New version of GDAL might solve it
     # To plot borders and coastlines, we can use cartopy feature
+    warnings.filterwarnings('ignore')
+    warnings.simplefilter('ignore')
+
     ax.add_feature(cf.COASTLINE.with_scale("10m"), lw=0.5)
     ax.add_feature(cf.BORDERS.with_scale("10m"), lw=0.3)
     # ax.add_feature(cf.LAND, zorder=100, edgecolor='k')  # Covers Data in land
@@ -181,7 +199,6 @@ def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentrat
         if full_log > upper_limit_chl:
             upper_limit_chl = full_log
 
-    # old: [0.01, 100] [0.3, 1]
     chl_range = [lower_limit_chl, upper_limit_chl]
 
     print("Chl Range: ", chl_range)
@@ -201,12 +218,15 @@ def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentrat
     # Colourmap with axes to match figure size
     cbar = plt.colorbar(im, location="bottom", shrink=1, ax=ax, pad=0.05)
 
-    # cbar.ax.yaxis.set_major_formatter(ticker.FuncFormatter(self.myLogFormat))
-    # cbar.ax.xaxis.set_major_formatter(ticker.FuncFormatter(self.myLogFormat))
+    cbar.ax.yaxis.set_major_formatter(ticker.FuncFormatter(tick_log_formatter))
+    cbar.ax.xaxis.set_major_formatter(ticker.FuncFormatter(tick_log_formatter))
 
     # cbar.ax.yaxis.set_minor_formatter(mticker.ScalarFormatter(useMathText=False, useOffset=False))
     # cbar.ax.xaxis.set_minor_formatter(mticker.ScalarFormatter(useMathText=False, useOffset=False))
 
     cbar.set_label(f" Chlorophyll Concentration [mg m^-3]")
     plt.title(plotTitle)
+
     plt.show()
+
+    warnings.resetwarnings()

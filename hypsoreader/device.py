@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 
+
 class Satellite:
     def __init__(self, top_folder_name) -> None:
         self.DEBUG = False
@@ -16,9 +17,8 @@ class Satellite:
         # TODO: This Information Is Also Taken From the GeoTIFF Consider Remove
         self.cube = self.get_raw_cube(top_folder_name)
 
-        self.projection_metadata=self.get_projection_metadata(top_folder_name)
-
-
+        self.projection_metadata = self.get_projection_metadata(
+            top_folder_name)
 
     def get_raw_cube(self, top_folder_name) -> np.ndarray:
         # find file ending in .bip
@@ -32,7 +32,8 @@ class Satellite:
         if self.DEBUG:
             print(path_to_bip)
             print(cube.shape)
-        cube = cube.reshape((-1, self.info["image_height"], self.info["image_width"]))
+        cube = cube.reshape(
+            (-1, self.info["image_height"], self.info["image_width"]))
 
         # reverse the order of the third dimension
         cube = cube[:, :, ::-1]
@@ -92,7 +93,8 @@ class Satellite:
                     except BaseException:
                         info[key] = value
 
-        timetamp_file = os.path.join(top_folder_name, raw_folder, "timestamps.txt")
+        timetamp_file = os.path.join(
+            top_folder_name, raw_folder, "timestamps.txt")
 
         with open(timetamp_file, "r") as f:
             lines = f.readlines()
@@ -161,8 +163,10 @@ class Satellite:
             lines = f.readlines()
             for line in lines:
                 if "lat lon" in line:
-                    info["latc"] = float(line.split("lat lon")[1].split(" ")[1])
-                    info["lonc"] = float(line.split("lat lon")[1].split(" ")[2])
+                    info["latc"] = float(line.split(
+                        "lat lon")[1].split(" ")[1])
+                    info["lonc"] = float(line.split(
+                        "lat lon")[1].split(" ")[2])
                     found_pos = True
                     break
 
@@ -176,18 +180,18 @@ class Satellite:
 
         # Load Latitude
         info["lat"] = np.fromfile(latitude_dataPath, dtype="float32")
-        # info["lat"] = info["lat"].reshape(self.spatialDim)
+        info["lat"] = info["lat"].reshape(self.spatialDim)
         # Load Longitude
         info["lon"] = np.fromfile(longitude_dataPath, dtype="float32")
-        # info["lon"] = info["lon"].reshape(self.spatialDim)
-        
-        # info["lon"],info["lat"]=np.meshgrid(info["lon"],info["lat"], sparse=True)
+        info["lon"] = info["lon"].reshape(self.spatialDim)
+
+        # info["lon"], info["lat"] = np.meshgrid(info["lon"], info["lat"], sparse=True)
         if self.DEBUG:
             print(info)
 
         return info
-    
-    def get_projection_metadata(self,top_folder_name:str) ->dict:
+
+    def get_projection_metadata(self, top_folder_name: str) -> dict:
         # Get .geotiff file from geotiff folder
         geotiff_dir = [
             f.path
@@ -216,4 +220,3 @@ class Satellite:
             "proj": proj,
             "inproj": inproj,
         }
-        
