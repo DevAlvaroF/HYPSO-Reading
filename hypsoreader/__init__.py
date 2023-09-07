@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#
+
 # This file is part of hypsoreader.
 #
 # hypsoreader is free software: you can redistribute it and/or modify
@@ -21,8 +21,7 @@
 __author__ = "Alvaro Flores <alvaro.f.romero@ntnu.no>"
 __credits__ = "Norwegian University of Science and Technology"
 
-from .plot import *
-from .spectra import *
+from .device import Satellite
 
 try:
     from ._version import version as __version__
