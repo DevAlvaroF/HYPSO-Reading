@@ -1,1 +1,1 @@
-from .map import show_rgb, plot_chlorophyll
+from .map import write_rgb_map, write_rgb, plot_chlorophyll

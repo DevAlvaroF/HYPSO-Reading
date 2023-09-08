@@ -260,37 +260,3 @@ class Satellite:
             self.info["lat"], self.info["lon"] = coordinate_correction(
                 point_file[0], self.projection_metadata,
                 self.info["lat"], self.info["lon"])
-
-    def write_rgb(
-            self,
-            path_to_save: str,
-            R_wl: float = 650,
-            G_wl: float = 550,
-            B_wl: float = 450) -> None:
-        """
-        Write the RGB image.
-
-        Args:
-            path_to_save (str): The path to save the RGB image.
-            R_wl (float, optional): The wavelength for the red channel. Defaults to 650.
-            G_wl (float, optional): The wavelength for the green channel. Defaults to 550.
-            B_wl (float, optional): The wavelength for the blue channel. Defaults to 450.
-        """
-        import matplotlib.pyplot as plt
-
-        # check if file ends with .jpg
-        if not path_to_save.endswith('.png'):
-            path_to_save = path_to_save + '.png'
-
-        R = np.argmin(abs(self.spectral_coefficients - R_wl))
-        G = np.argmin(abs(self.spectral_coefficients - G_wl))
-        B = np.argmin(abs(self.spectral_coefficients - B_wl))
-
-        # get the rgb image
-        rgb = self.l1b_cube[:, :, [R, G, B]]
-        rgb = rgb / 255.0
-
-        fig = plt.imshow(rgb, vmin=0, vmax=1.0)
-        plt.savefig(path_to_save)
-
-        return
