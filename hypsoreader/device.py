@@ -7,9 +7,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from importlib.resources import files
-import json
 import netCDF4 as nc
-import plotly
 
 from .radiometric import calibrate_cube, get_coefficients_from_file
 
