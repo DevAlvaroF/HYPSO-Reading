@@ -6,6 +6,12 @@ from osgeo import gdal, osr
 import numpy as np
 import pandas as pd
 from datetime import datetime
+from importlib.resources import files
+import json
+import netCDF4 as nc
+import plotly
+
+from .radiometric import calibrate_cube, get_coefficients_from_file
 
 
 class Satellite:
@@ -14,11 +20,25 @@ class Satellite:
         self.spatialDim = (956, 684)
 
         self.info = self.get_metainfo(top_folder_name)
-        # TODO: This Information Is Also Taken From the GeoTIFF Consider Remove
-        self.cube = self.get_raw_cube(top_folder_name)
+
+        self.rawcube = self.get_raw_cube(top_folder_name)
 
         self.projection_metadata = self.get_projection_metadata(
             top_folder_name)
+
+        # Radiometric Coefficients
+        self.radiometric_coeff_file = self.get_radiometric_coefficients_path()
+        self.radiometric_coefficients = get_coefficients_from_file(
+            self.radiometric_coeff_file)
+
+        # Wavelengths
+        self.spectral_coeff_file = self.get_spectral_coefficients_path()
+        self.spectral_coefficients = get_coefficients_from_file(
+            self.spectral_coeff_file)
+        self.wavelengths = self.spectral_coefficients
+
+        self.l1b_cube = calibrate_cube(
+            self.info, self.rawcube, self.radiometric_coefficients)
 
     def get_raw_cube(self, top_folder_name) -> np.ndarray:
         # find file ending in .bip
@@ -220,3 +240,59 @@ class Satellite:
             "proj": proj,
             "inproj": inproj,
         }
+
+    def get_radiometric_coefficients_path(self) -> str:
+        coeff_file = files(
+            'hypsoreader.radiometric').joinpath('data/rad_coeffs_FM_binx9_2022_08_06_Finnmark_recal_a.csv')
+        return coeff_file
+
+    def get_spectral_coefficients_path(self) -> str:
+        wl_file = files(
+            'hypsoreader.radiometric').joinpath('data/spectral_bands_HYPSO-1_120bands.csv')
+        return wl_file
+
+    def georeference_image(self, top_folder_name: str):
+        # gcpPath = r"C:\Users\alvar\OneDrive\Desktop\karachi_2023-02-06_0531Z-bin3.png.points"225
+        # lat_coeff, lon_coeff = reference_correction.geotiff_correction(gcpPath, self.projection_metadata)
+        point_file = glob.glob(top_folder_name + '/*.points')
+
+        if len(point_file) == 0:
+            print("Points File Was Not Found")
+        else:
+            self.info["lat"], self.info["lon"] = coordinate_correction(
+                point_file[0], self.projection_metadata,
+                self.info["lat"], self.info["lon"])
+
+    def write_rgb(
+            self,
+            path_to_save: str,
+            R_wl: float = 650,
+            G_wl: float = 550,
+            B_wl: float = 450) -> None:
+        """
+        Write the RGB image.
+
+        Args:
+            path_to_save (str): The path to save the RGB image.
+            R_wl (float, optional): The wavelength for the red channel. Defaults to 650.
+            G_wl (float, optional): The wavelength for the green channel. Defaults to 550.
+            B_wl (float, optional): The wavelength for the blue channel. Defaults to 450.
+        """
+        import matplotlib.pyplot as plt
+
+        # check if file ends with .jpg
+        if not path_to_save.endswith('.png'):
+            path_to_save = path_to_save + '.png'
+
+        R = np.argmin(abs(self.spectral_coefficients - R_wl))
+        G = np.argmin(abs(self.spectral_coefficients - G_wl))
+        B = np.argmin(abs(self.spectral_coefficients - B_wl))
+
+        # get the rgb image
+        rgb = self.l1b_cube[:, :, [R, G, B]]
+        rgb = rgb / 255.0
+
+        fig = plt.imshow(rgb, vmin=0, vmax=1.0)
+        plt.savefig(path_to_save)
+
+        return
