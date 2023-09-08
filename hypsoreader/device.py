@@ -10,6 +10,7 @@ from importlib.resources import files
 import netCDF4 as nc
 
 from .radiometric import calibrate_cube, get_coefficients_from_file
+from .georeference import coordinate_correction
 
 
 class Satellite:
@@ -37,6 +38,8 @@ class Satellite:
 
         self.l1b_cube = calibrate_cube(
             self.info, self.rawcube, self.radiometric_coefficients)
+
+        self.l2_cube = None
 
     def get_raw_cube(self, top_folder_name) -> np.ndarray:
         # find file ending in .bip
@@ -255,7 +258,7 @@ class Satellite:
         point_file = glob.glob(top_folder_name + '/*.points')
 
         if len(point_file) == 0:
-            print("Points File Was Not Found")
+            print("Points File Was Not Found. No Correction done.")
         else:
             self.info["lat"], self.info["lon"] = coordinate_correction(
                 point_file[0], self.projection_metadata,

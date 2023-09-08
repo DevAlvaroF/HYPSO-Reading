@@ -1,2 +1,3 @@
 global-include *.csv
+global-include *.ini
 include hypsoreader/_version.py
