@@ -88,7 +88,7 @@ def write_rgb_map(satellite_obj, plotTitle="RGB Image"):
     crs = ccrs.PlateCarree()
 
     # Now we will create axes object having specific projection
-    fig = plt.figure(figsize=(10, 10), dpi=450)
+    fig = plt.figure(figsize=(10, 10), dpi=450, facecolor="white")
     fig.patch.set_alpha(1)
     ax = fig.add_subplot(projection=projection, frameon=True)
 
@@ -153,7 +153,7 @@ def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentrat
     projection = ccrs.Mercator()
     crs = ccrs.PlateCarree()
 
-    fig = plt.figure(figsize=(10, 10), dpi=450)
+    fig = plt.figure(figsize=(10, 10), dpi=450, facecolor="white")
     fig.patch.set_alpha(1)
     ax = fig.add_subplot(projection=projection, frameon=True)
 
@@ -261,7 +261,8 @@ def write_rgb(
     rgb = sat_obj.l1b_cube[:, :, [R, G, B]]
     rgb = rgb / 255.0
 
-    fig = plt.imshow(rgb, vmin=0, vmax=1.0)
+    fig = plt.figure(dpi=350, facecolor="white")
+    plt.imshow(rgb, vmin=0, vmax=1.0)
     plt.savefig(path_to_save)
 
     return
