@@ -31,9 +31,12 @@ except:
 from importlib.resources import files
 from importlib.metadata import version
 
-version('hypsoreader')
-
 all_files_here = files(
     'hypsoreader').iterdir()
 for k in all_files_here:
     print(k)
+print("============================")
+cool_file = files('hypsoreader').joinpath('_version.py')
+print(cool_file)
+with open(cool_file, 'r') as fin:
+    print(fin.read())
