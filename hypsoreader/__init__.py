@@ -23,10 +23,4 @@ __credits__ = "Norwegian University of Science and Technology"
 
 from .device import Satellite
 
-try:
-    from hypsoreader.version import version as __version__  # noqa
-except ModuleNotFoundError:  # development mode
-    __version__ = '0.5.0'
-    raise ModuleNotFoundError(
-        "No module named hypsoreader.version. This could mean "
-        "you didn't install 'hypsoreader' properly. Try reinstalling.")
+from ._version import version as __version__  # noqa
