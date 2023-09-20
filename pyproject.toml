@@ -61,5 +61,5 @@ include = [
 ]
 
 [tool.setuptools_scm]
-version_file = "hypsoreader/version.py"
+write_to = "hypsoreader/version.py"
 
