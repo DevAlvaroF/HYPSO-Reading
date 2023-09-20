@@ -23,4 +23,4 @@ __credits__ = "Norwegian University of Science and Technology"
 
 from .device import Satellite
 
-from ._version import version as __version__  # noqa
+from _version import version as __version__  # noqa
