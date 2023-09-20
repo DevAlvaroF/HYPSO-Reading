@@ -26,6 +26,8 @@ def get_coefficients_from_file(coeff_path: str) -> np.ndarray:
 
 
 def calibrate_cube(info_sat: dict, raw_cube: np.ndarray, radiometric_coefficients: np.ndarray) -> np.ndarray:
+    """Calibrate the raw data cube."""
+    DEBUG = False
 
     background_value = info_sat['background_value']
     exp = info_sat['exp']
@@ -35,13 +37,66 @@ def calibrate_cube(info_sat: dict, raw_cube: np.ndarray, radiometric_coefficient
     # Radiometric calibration
     num_frames = info_sat["frame_count"]
     cube_calibrated = np.zeros([num_frames, image_height, image_width])
-    for i in range(num_frames):
-        frame = raw_cube[i, :, :]
-        frame_calibrated = apply_radiometric_calibration(
-            frame, exp, background_value, radiometric_coefficients)
-        cube_calibrated[i, :, :] = frame_calibrated
+
+    if DEBUG:
+        print("F:", num_frames, "H:", image_height, "W:", image_width)
+        print("Radioshape: ", radiometric_coefficients.shape)
+
+    f_standard = num_frames
+    h_standard = radiometric_coefficients.shape[0]
+    if (num_frames == f_standard and image_height == h_standard):
+        for i in range(num_frames):
+            frame = raw_cube[i, :, :]
+            frame_calibrated = apply_radiometric_calibration(
+                frame, exp, background_value, radiometric_coefficients)
+            cube_calibrated[i, :, :] = frame_calibrated
+    elif True:
+        print("DEV No Standard Dimensions. Image height: ", image_height)
+        # TODO: Delete this
+        for i in range(num_frames):
+            frame = raw_cube[i, :, :]
+            frame_calibrated = apply_radiometric_calibration(
+                frame, exp, background_value, np.ones_like(frame))
+            cube_calibrated[i, :, :] = frame_calibrated
+    else:
+        print("Format w/o Standard Dimensions for rad coeffs detected. Image height: ", image_height)
+
+        # 1-pad overflowing and cut underflowing radiometric coeffs
+        # before generating a calibrated cube.
+        h_diff = image_height - h_standard  # difference from standard
+        f_diff = num_frames - f_standard
+        hparam = int(h_diff/2)
+        fparam = int(f_diff/2)
+        if (h_diff > 0):
+            padded_coeffs = np.pad(radiometric_coefficients, ((
+                hparam, hparam), (0, 0)), constant_values=1)
+            radiometric_coefficients = padded_coeffs
+        elif (h_diff < 0):
+            trimmed_coeffs = radiometric_coefficients
+            for i in range(abs(hparam)):
+                trimmed_coeffs = np.delete(trimmed_coeffs, -1, 0)
+                trimmed_coeffs = np.delete(trimmed_coeffs, 0, 0)
+            radiometric_coefficients = trimmed_coeffs
+        if (f_diff > 0):
+            padded_coeffs = np.pad(radiometric_coefficients, ((
+                0, 0), (fparam, fparam)), constant_values=1)
+            radiometric_coefficients = padded_coeffs
+        elif (f_diff < 0):
+            trimmed_coeffs = radiometric_coefficients
+            for i in range(abs(fparam)):
+                trimmed_coeffs = np.delete(trimmed_coeffs, -1, 1)
+                trimmed_coeffs = np.delete(trimmed_coeffs, 0, 1)
+            radiometric_coefficients = trimmed_coeffs
+
+        # "calibrate" as normal (data will effectively be uncalibrated for much of the capture)
+        for i in range(num_frames):
+            frame = raw_cube[i, :, :]
+            frame_calibrated = apply_radiometric_calibration(
+                frame, exp, background_value, radiometric_coefficients)
+            cube_calibrated[i, :, :] = frame_calibrated
 
     l1b_cube = cube_calibrated
+    # self.wavelengths = self.spec_coefficients
 
     return l1b_cube
 

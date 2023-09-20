@@ -10,20 +10,20 @@ from importlib.resources import files
 import netCDF4 as nc
 
 from .radiometric import calibrate_cube, get_coefficients_from_file
-from .georeference import coordinate_correction
+from .georeference import coordinate_correction, generate_geotiff
 
 
 class Satellite:
     def __init__(self, top_folder_name) -> None:
         self.DEBUG = False
-        self.spatialDim = (956, 684)
-
+        self.spatialDim = (956, 684)  # 1092 x variable
+        self.standardDimensions = {
+            "nominal": 956,  # Along frame_count
+            "wide": 1092  # Along image_height (row_count)
+        }
         self.info = self.get_metainfo(top_folder_name)
 
         self.rawcube = self.get_raw_cube(top_folder_name)
-
-        self.projection_metadata = self.get_projection_metadata(
-            top_folder_name)
 
         # Radiometric Coefficients
         self.radiometric_coeff_file = self.get_radiometric_coefficients_path()
@@ -39,7 +39,12 @@ class Satellite:
         self.l1b_cube = calibrate_cube(
             self.info, self.rawcube, self.radiometric_coefficients)
 
-        self.l2_cube = None
+        # Create Geotiff (L1C)
+        # TODO:Get Projection Metadata From FunctionInstead of File
+        self.projection_metadata = self.get_projection_metadata(
+            top_folder_name)
+
+        self.l2a_cube = None
 
     def get_raw_cube(self, top_folder_name) -> np.ndarray:
         # find file ending in .bip
@@ -168,7 +173,22 @@ class Satellite:
         info["image_width"] = int(info["column_count"] / info["bin_factor"])
         info["im_size"] = info["image_height"] * info["image_width"]
 
+        # Update Spatial Dim if not standard
+        rows_img = info["frame_count"]  # Due to way image is captured
+        cols_img = info["image_height"]
+
+        if (rows_img == self.standardDimensions["nominal"]):
+            info["capture_type"] = "nominal"
+
+        elif (cols_img == self.standardDimensions["wide"]):
+            info["capture_type"] = "wide"
+        else:
+            raise Exception("Number of Rows (AKA frame_count) Is Not Standard")
+
+        self.spatialDim = (rows_img, cols_img)
+
         # Find Coordinates of the Center of the Image
+        # TODO get center lat from .dat lat lon files , average it
         pos_file = ""
         foldername = info["top_folder_name"]
         for file in os.listdir(foldername):
@@ -201,10 +221,13 @@ class Satellite:
 
         # Load Latitude
         info["lat"] = np.fromfile(latitude_dataPath, dtype="float32")
-        info["lat"] = info["lat"].reshape(self.spatialDim)
+
+        info["lat"] = info["lat"].reshape(
+            self.spatialDim)
         # Load Longitude
         info["lon"] = np.fromfile(longitude_dataPath, dtype="float32")
-        info["lon"] = info["lon"].reshape(self.spatialDim)
+        info["lon"] = info["lon"].reshape(
+            self.spatialDim)
 
         # info["lon"], info["lat"] = np.meshgrid(info["lon"], info["lat"], sparse=True)
         if self.DEBUG:
@@ -213,12 +236,28 @@ class Satellite:
         return info
 
     def get_projection_metadata(self, top_folder_name: str) -> dict:
+
+        tiff_name = "geotiff2"
         # Get .geotiff file from geotiff folder
         geotiff_dir = [
             f.path
             for f in os.scandir(top_folder_name)
-            if (f.is_dir() and ("geotiff" in os.path.basename(os.path.normpath(f))))
-        ][0]
+            if (f.is_dir() and (tiff_name in os.path.basename(os.path.normpath(f))))
+        ]
+
+        if len(geotiff_dir) != 0:
+            geotiff_dir = geotiff_dir[0]
+        else:
+            generate_geotiff(self)
+            geotiff_dir = [
+                f.path
+                for f in os.scandir(top_folder_name)
+                if (f.is_dir() and (tiff_name in os.path.basename(os.path.normpath(f))))
+            ]
+            if len(geotiff_dir) != 0:
+                geotiff_dir = geotiff_dir[0]
+            else:
+                raise Exception("Could not generate L1C GeoTiff")
 
         self.geotiffFilePath = [
             join(geotiff_dir, f)

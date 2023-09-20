@@ -13,6 +13,8 @@ import cartopy.feature as cf
 import geopandas as gpd
 import rasterio as rio
 
+from PIL import Image, ImageOps
+
 PLOTZOOM = 1.0
 
 
@@ -119,11 +121,16 @@ def write_rgb_map(satellite_obj, plotTitle="RGB Image"):
     # ax.add_feature(cf.LAND, zorder=100, edgecolor='k')  # Covers Data in land
 
     # Plot Image
+    # todo:Extract Image From Hypercube Created by the GeoTIFF file
     rgb_array = satellite_obj.projection_metadata["data"][:3, :, :]
+    # plot_rgb = create_rgb(sat_obj=satellite_obj)
 
-    masked_data = np.ma.masked_where(rgb_array == 0, rgb_array)
+    plot_rgb = np.ma.masked_where(rgb_array == 0, rgb_array)
+
     ax.imshow(
-        np.rot90(masked_data.transpose((1, 2, 0)), k=2),
+        np.rot90(plot_rgb.transpose((1, 2, 0)), k=2),
+        # np.rot90(plot_rgb, k=2),
+        # plot_rgb,
         origin="upper",
         extent=transformed_img_extent,
         transform=projection_img,
@@ -232,12 +239,50 @@ def plot_chlorophyll(satellite_obj, chl_array, plotTitle="Chlorophyll Concentrat
     warnings.resetwarnings()
 
 
-def write_rgb(
-        sat_obj,
-        path_to_save: str,
-        R_wl: float = 650,
-        G_wl: float = 550,
-        B_wl: float = 450) -> None:
+def auto_adjust_img(img: np.ndarray) -> np.ndarray:
+    """ Adjust image contrast using histogram equalization.
+
+    Args:
+        img: Image to adjust.
+
+    Returns:
+        Adjusted image.
+    """
+
+    img = Image.fromarray(np.uint8(img * 255 / np.max(img)))
+
+    # Convert image to grayscale
+    gray_img = ImageOps.grayscale(img)
+
+    # Compute histogram
+    hist = gray_img.histogram()
+
+    # Compute cumulative distribution function (CDF)
+    cdf = [sum(hist[:i + 1]) for i in range(len(hist))]
+
+    # Normalize CDF
+    cdf_normalized = [
+        int((x - min(cdf)) * 255 / (max(cdf) - min(cdf))) for x in cdf]
+
+    # Create lookup table
+    lookup_table = dict(zip(range(256), cdf_normalized))
+
+    # Apply lookup table to each channel
+    channels = img.split()
+    adjusted_channels = []
+    for channel in channels:
+        adjusted_channels.append(channel.point(lookup_table))
+
+    # Merge channels and return result
+    pil_image = Image.merge(img.mode, tuple(adjusted_channels))
+
+    return np.array(pil_image)/255.0
+
+
+def create_rgb(sat_obj,
+               R_wl: float = 650,
+               G_wl: float = 550,
+               B_wl: float = 450) -> Image:
     """
     Write the RGB image.
 
@@ -247,11 +292,6 @@ def write_rgb(
         G_wl (float, optional): The wavelength for the green channel. Defaults to 550.
         B_wl (float, optional): The wavelength for the blue channel. Defaults to 450.
     """
-    import matplotlib.pyplot as plt
-
-    # check if file ends with .jpg
-    if not path_to_save.endswith('.png'):
-        path_to_save = path_to_save + '.png'
 
     R = np.argmin(abs(sat_obj.spectral_coefficients - R_wl))
     G = np.argmin(abs(sat_obj.spectral_coefficients - G_wl))
@@ -259,10 +299,26 @@ def write_rgb(
 
     # get the rgb image
     rgb = sat_obj.l1b_cube[:, :, [R, G, B]]
-    rgb = rgb / 255.0
+    rgb_img = auto_adjust_img(rgb)
+
+    return rgb_img
+
+
+def write_rgb(
+        sat_obj,
+        path_to_save: str,
+) -> Image:
+
+    rgb_img = create_rgb(sat_obj)
+
+    # check if file ends with .jpg
+    if not path_to_save.endswith('.png'):
+        path_to_save = path_to_save + '.png'
+
+    import matplotlib.pyplot as plt
 
     fig = plt.figure(dpi=350, facecolor="white")
-    plt.imshow(rgb, vmin=0, vmax=1.0)
+    plt.imshow(rgb_img, vmin=0, vmax=1.0)
     plt.savefig(path_to_save)
 
-    return
+    return rgb_img

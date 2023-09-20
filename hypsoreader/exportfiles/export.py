@@ -3,7 +3,7 @@ import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 def write_h1data_as_geojson(sat_object, path_to_save: str) -> None:
@@ -47,30 +47,7 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
     if DEBUG:
         print(h1.info)
 
-    is_nav_data_available = False
-    for file in os.listdir(path_to_h1data):
-        if "sat-azimuth.dat" in file:
-            sata = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-            is_nav_data_available = True
-        elif "sat-zenith.dat" in file:
-            satz = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-        elif "sun-azimuth.dat" in file:
-            suna = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-        elif "sun-zenith.dat" in file:
-            sunz = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-        elif "latitudes.dat" in file:
-            lat = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-        elif "longitudes.dat" in file:
-            lon = np.fromfile(os.path.join(
-                path_to_h1data, file), dtype=np.float32)
-
-    if not is_nav_data_available:
-        raise ValueError("Navigation data is not available.")
+    sata, satz, suna, sunz, lat, lon = get_nav_and_view(path_to_h1data)
 
     # get unixtimes
     posetime_file = None
@@ -93,6 +70,7 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
 
         f.instrument = "HYPSO-1 Hyperspectral Imager"
         f.institution = "Norwegian University of Science and Technology"
+        f.resolution = "N/A"
         f.location_description = name
         f.license = "TBD"
         f.naming_authority = "NTNU SmallSat Lab"
@@ -102,10 +80,8 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
         f.publisher_url = "https://hypso.space"
         # f.publisher_contact = "smallsat@ntnu.no"
         f.processing_level = "L1B"
-        f.radiometric_file = os.path.basename(
-            h1.radiometric_coeff_file)
-        f.spectral_file = os.path.basename(
-            h1.spectral_coeff_file)
+        f.radiometric_file = h1.rad_file
+        f.spectral_file = h1.spec_file
         # Create dimensions
         f.createDimension('frames', frames)
         f.createDimension('lines', lines)
@@ -117,61 +93,144 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
         navigation_group.iso8601time = h1.info["iso_time"] + "Z"
 
         # Create variables
+        COMP_SCHEME = 'zlib'  # Default: zlib
+        COMP_LEVEL = 4  # Default (when scheme != none): 4
+        COMP_SHUFFLE = True  # Default (when scheme != none): True
 
         time = f.createVariable('navigation/unixtime', 'u8', ('frames',))
         time[:] = df["timestamp"].values
 
         sensor_z = f.createVariable(
-            'navigation/sensor_zenith', 'f4', ('frames', 'lines'))
+            'navigation/sensor_zenith', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         sensor_z[:] = satz.reshape(frames, lines)
         sensor_z.long_name = "Sensor Zenith Angle"
         sensor_z.units = "degrees"
-        sensor_z.valid_range = [-180, 180]
+        # sensor_z.valid_range = [-180, 180]
+        sensor_z.valid_min = -180
+        sensor_z.valid_max = 180
 
         sensor_a = f.createVariable(
-            'navigation/sensor_azimuth', 'f4', ('frames', 'lines'))
+            'navigation/sensor_azimuth', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         sensor_a[:] = sata.reshape(frames, lines)
         sensor_a.long_name = "Sensor Azimuth Angle"
         sensor_a.units = "degrees"
-        sensor_a.valid_range = [-180, 180]
+        # sensor_a.valid_range = [-180, 180]
+        sensor_a.valid_min = -180
+        sensor_a.valid_max = 180
 
         solar_z = f.createVariable(
-            'navigation/solar_zenith', 'f4', ('frames', 'lines'))
+            'navigation/solar_zenith', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         solar_z[:] = sunz.reshape(frames, lines)
         solar_z.long_name = "Solar Zenith Angle"
         solar_z.units = "degrees"
-        solar_z.valid_range = [-180, 180]
+        # solar_z.valid_range = [-180, 180]
+        solar_z.valid_min = -180
+        solar_z.valid_max = 180
 
         solar_a = f.createVariable(
-            'navigation/solar_azimuth', 'f4', ('frames', 'lines'))
+            'navigation/solar_azimuth', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         solar_a[:] = suna.reshape(frames, lines)
         solar_a.long_name = "Solar Azimuth Angle"
         solar_a.units = "degrees"
-        solar_a.valid_range = [-180, 180]
+        # solar_a.valid_range = [-180, 180]
+        solar_a.valid_min = -180
+        solar_a.valid_max = 180
 
         latitude = f.createVariable(
-            'navigation/latitude', 'f4', ('frames', 'lines'))
+            'navigation/latitude', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         latitude[:] = lat.reshape(frames, lines)
         latitude.long_name = "Latitude"
         latitude.units = "degrees"
-        latitude.valid_range = [-180, 180]
+        # latitude.valid_range = [-180, 180]
+        latitude.valid_min = -180
+        latitude.valid_max = 180
 
         longitude = f.createVariable(
-            'navigation/longitude', 'f4', ('frames', 'lines'))
+            'navigation/longitude', 'f4', ('frames', 'lines'),
+            # compression=COMP_SCHEME,
+            # complevel=COMP_LEVEL,
+            # shuffle=COMP_SHUFFLE,
+        )
         longitude[:] = lon.reshape(frames, lines)
         longitude.long_name = "Longitude"
         longitude.units = "degrees"
-        longitude.valid_range = [-180, 180]
+        # longitude.valid_range = [-180, 180]
+        longitude.valid_min = -180
+        longitude.valid_max = 180
 
         f.createGroup('products')
         Lt = f.createVariable('products/Lt', 'f4',
-                              ('frames', 'lines', 'bands'))
+                              ('frames', 'lines', 'bands'),
+                              compression=COMP_SCHEME,
+                              complevel=COMP_LEVEL,
+                              shuffle=COMP_SHUFFLE,
+                              # least_significant_digit=5, #Truncate data for extra compression. At 12 bits, 5 sigdigs should suffice?
+                              )  # Default: lvl 4 w/ shuffling
         Lt.units = "W/m^2/micrometer/sr"
         Lt.long_name = "Top of Atmosphere Measured Radiance"
         Lt.wavelength_units = "nanometers"
         Lt.fwhm = [5.5] * bands
-        Lt.wavelengths = np.around(h1.spectral_coefficients, 1)
+        Lt.wavelengths = np.around(h1.spec_coefficients, 1)
         Lt[:] = h1.l1b_cube
+
+        # NASA scan_lines_attributes:
+        # Don't know if this is at all necessary
+        # ...or correct, for that matter
+        f.createGroup('scan_line_attributes')
+        scan_quality_flags = f.createVariable('scan_line_attributes/scan_quality_flags',
+                                              'uint8', ('frames', 'lines'))
+        scan_quality_flags[:] = 255
+
+        # NASA metadata
+        # I'm assuming this is necessary for use with SNAP,
+        # and part of the NASA CDF standard
+        metadata_group = f.createGroup('metadata')
+
+        meta_fgdc_group = f.createGroup('metadata/FGDC')
+        meta_fgdc_ident_group = f.createGroup(
+            'metadata/FGDC/Indentification_Information')
+        meta_fgdc_ident_platform_group = f.createGroup(
+            'metadata/FGDC/Identification_Information/Platform_and_Instrument_Identification')
+        meta_fgdc_ident_platform_group.Instrument_Short_Name = 'hypso'
+
+        meta_fgdc_ident_prclvl_group = f.createGroup(
+            'metadata/FGDC/Identification_Information/Processing_Level')
+        meta_fgdc_ident_prclvl_group.Processing_Level_Identifier = 'Level-1B'
+
+        meta_fgdc_ident_time_group = f.createGroup(
+            'metadata/FGDC/Identification_Information/Time_Period_of_Content')
+        # will obvs need to be calculated from somewhere
+        starttimestamp = datetime.fromtimestamp(time[0], timezone.utc)
+        endtimestamp = datetime.fromtimestamp(time[-1], timezone.utc)
+        meta_fgdc_ident_time_group.Beginning_Date = starttimestamp.date().isoformat()
+        meta_fgdc_ident_time_group.Ending_Date = endtimestamp.date().isoformat()
+        meta_fgdc_ident_time_group.Beginning_Time = starttimestamp.time().isoformat() + "Z"
+        meta_fgdc_ident_time_group.Ending_Time = endtimestamp.time().isoformat() + "Z"
+
+        # Hunch that we don't actually need this
+        meta_hypso_calib_group = f.createGroup('metadata/HYPSO/Calibration')
+        # Resolves to '+XVV' for HICO
+        meta_hypso_calib_group.hypso_orientation_from_quaternion = '+XVV'
 
 
 def print_nc(nc_file, path='', depth=0):
