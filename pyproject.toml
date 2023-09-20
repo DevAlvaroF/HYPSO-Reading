@@ -63,7 +63,7 @@ include = [
 # [tool.setuptools_scm]
 
 [tool.setuptools.dynamic]
-version = {attr = "hypsoreader.__version__"}
+version = {attr = "hypsoreader.version"}
 
 # -- coverage.py
 
