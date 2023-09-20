@@ -24,11 +24,15 @@ __credits__ = "Norwegian University of Science and Technology"
 from .device import Satellite
 
 try:
-    from ._version import version as __version__  # noqa
+    from ._version import __version__  # noqa
 except:
     pass
 
 from importlib.resources import files
+from importlib.metadata import version
+
+version('hypsoreader')
+
 all_files_here = files(
     'hypsoreader').iterdir()
 for k in all_files_here:
