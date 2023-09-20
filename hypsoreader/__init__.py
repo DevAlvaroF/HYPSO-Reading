@@ -26,4 +26,4 @@ from .device import Satellite
 try:
     from ._version import version as __version__
 except ModuleNotFoundError:  # development mode
-    __version__ = '0.2.0'
+    __version__ = '0.5.0'
