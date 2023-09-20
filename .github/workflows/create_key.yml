@@ -1,15 +1,9 @@
 name: Create SHA256!
 run-name: ${{ github.actor }} is generatig SHA256 ${{ github.ref_name }}
 
-#on:
-#  release:
-#    types: [published]
-
 on:
-  workflow_run:
-    workflows: ["Release Package"]
-    types:
-      - completed
+  release:
+    types: [published]
 
 jobs:
   sha256:
