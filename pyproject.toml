@@ -1,5 +1,9 @@
 # -- build
 
+[tool.setuptools_scm]
+write_to = "hypsoreader/_version.py"
+fallback_version = "0.6.0"
+
 [build-system]
 requires=[
   "python >=3.9",
@@ -60,6 +64,3 @@ include = [
   "hypsoreader*",
 ]
 
-[tool.setuptools_scm]
-write_to = "hypsoreader/_version.py"
-fallback_version = "0.6.0"

@@ -7,6 +7,7 @@ import warnings
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 
+
 # GIS
 import cartopy.crs as ccrs
 import cartopy.feature as cf
@@ -118,7 +119,10 @@ def write_rgb_map(satellite_obj, plotTitle="RGB Image"):
 
     ax.add_feature(cf.COASTLINE.with_scale("10m"), lw=0.5)
     ax.add_feature(cf.BORDERS.with_scale("10m"), lw=0.3)
-    # ax.add_feature(cf.LAND, zorder=100, edgecolor='k')  # Covers Data in land
+    ax.add_feature(cf.LAKES.with_scale('10m'), lw=0.3, alpha=0.2, zorder=100)
+    ax.add_feature(cf.OCEAN.with_scale('10m'), lw=0.3, alpha=0.2, zorder=100)
+    # ax.add_feature(cf.RIVERS.with_scale('10m'), lw=0.3, alpha=0.5)
+#     ax.add_feature(cf.LAND, zorder=100, edgecolor='k')  # Covers Data in land
 
     # Plot Image
     # todo:Extract Image From Hypercube Created by the GeoTIFF file

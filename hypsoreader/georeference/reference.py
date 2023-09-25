@@ -1,13 +1,17 @@
 import numpy as np
 from importlib.resources import files
 import os
+import csv
 import pyproj as prj
+import pandas as pd
 # for mplpath.Path() and its contains_points() method
 import matplotlib.path as mplpath
 import shapely.geometry as sg
 import matplotlib.pyplot as plt
 from osgeo import gdal
 from osgeo import osr
+# GIS
+import cartopy.crs as ccrs
 import math as m
 import threading
 import scipy.interpolate as si
@@ -19,9 +23,119 @@ import scipy.interpolate as si
 from hypsoreader.georeference import georef as gref
 
 
+def coordinate_correction_matrix(filename, projection_metadata):
+    # Hypso CRS
+    inproj = projection_metadata['inproj']
+    # Convert WKT projection information into a cartopy projection
+    projcs = inproj.GetAuthorityCode('PROJCS')
+    projection_hypso = ccrs.epsg(projcs)
+    projection_hypso_transformer = prj.Proj(projection_hypso)
+    # Create projection transformer to go from QGIS to Hypso
+
+    # Load GCP File
+    gcps = None
+    with open(filename,  encoding="utf8", errors='ignore') as csv_file:
+        # Open CSV file
+        reader = csv.reader(csv_file)
+
+        next(reader, None)  # Skip row with CRS data
+        # mapX, mapY, sourceX, sourceY, enable, dX, dY, residual
+        column_names = list(next(reader, None))
+
+        # Get CRS
+        qgis_crs = 'epsg:3857'
+        hypso_crs = 'epsg:32642'
+
+        # Transformer from dataset crs to destination crs
+        transformer_src_dest = prj.Transformer.from_crs(
+            qgis_crs, hypso_crs, always_xy=True)
+
+        # Iterate through rows and
+        for gcp in reader:
+
+            if gcps is None:
+                gcps = gcp
+            else:
+                gcps = np.row_stack((gcps, gcp))
+
+        # Convert Data to Dataframe
+
+        gcps = pd.DataFrame(gcps, columns=column_names)
+        gcps.rename(columns={"mapX": "mapLon",
+                             "mapY": "mapLat",
+                             "sourceX": "uncorrectedHypsoLon",
+                             "sourceY": "uncorrectedHypsoLat"}, inplace=True)
+
+        # Add Columns for Map Results Convert from MapCRS to Hypso CRS
+
+        gcps['transformed_mapLon'] = pd.Series(dtype='float')  # X is Longitude
+        gcps['transformed_mapLat'] = pd.Series(dtype='float')  # Y is latitude
+
+        # Iterate through each gcps array
+        for index, row in gcps.iterrows():
+            # Rows are copies, not references any more
+            row = row.copy()
+            # Transform Coordinates to Hypso CRS
+            # inverse = False -> From QGIS to Hypso
+            # inverse = True -> From Hypso to QGIS
+
+            # Option 1: Assume that everything is already in coordinates
+            transformed_lon, transformed_lat = projection_hypso_transformer(
+                row['mapLon'], row['mapLat'], inverse=True)
+
+            # Option 2: Assume that we need to move from one system to another
+            # transformed_lon, transformed_lat = transformer_src_dest.transform(row['mapLon'], row['mapLat'])
+
+            gcps.loc[index, 'transformed_mapLon'] = transformed_lon
+            gcps.loc[index, 'transformed_mapLat'] = transformed_lat
+
+            transformed_lon, transformed_lat = projection_hypso_transformer(row['uncorrectedHypsoLon'],
+                                                                            row['uncorrectedHypsoLat'], inverse=True)
+            gcps.loc[index, 'uncorrectedHypsoLon'] = transformed_lon
+            gcps.loc[index, 'uncorrectedHypsoLat'] = transformed_lat
+
+    # Estimate transform
+    hypso_src = gcps[["uncorrectedHypsoLon",
+                      "uncorrectedHypsoLat"]].to_numpy().astype(np.float32)
+    hypso_dst = gcps[["transformed_mapLon",
+                      "transformed_mapLat"]].to_numpy().astype(np.float32)
+
+    print("Hypso Source\n",
+          gcps[["uncorrectedHypsoLon", "uncorrectedHypsoLat"]])
+    print("Hypso Destination\n",
+          gcps[["transformed_mapLon", "transformed_mapLat"]])
+    print('--------------------------------')
+
+    # Get Affine Matrix
+    # M = cv2.getAffineTransform(hypso_src[:3, :], hypso_dst[:3, :])  # Affine requires only 3 points
+
+    # Estimate Affine 2D
+    # M, mask = cv2.estimateAffine2D(hypso_src, hypso_dst, refineIters=50)
+    # M, mask = cv2.estimateAffinePartial2D(
+    # hypso_src, hypso_dst, refineIters=50)  # Good Results!
+
+    # 2nd Order
+    # M = skimage.transform.estimate_transform('polynomial', hypso_src, hypso_dst, 2)
+
+    # Using Numpy Least Squares ( Good Results!)
+    M = []
+    x = hypso_src[:, 0]
+    y = hypso_dst[:, 0]
+    A = np.vstack([x, np.ones(len(x))]).T
+    m, c = np.linalg.lstsq(A, y, rcond=None)[0]
+    M.append([m, c])
+    x = hypso_src[:, 1]
+    y = hypso_dst[:, 1]
+    A = np.vstack([x, np.ones(len(x))]).T
+    m, c = np.linalg.lstsq(A, y, rcond=None)[0]
+    M.append([m, c])
+
+    return M  # lat_coeff, lon_coeff
+
+
 def coordinate_correction(point_file, projection_metadata, originalLat, originalLon):
     # Use Utility File to Extract M
-    M = 2
+    M = coordinate_correction_matrix(point_file, projection_metadata)
 
     finalLat = originalLat.copy()
     finalLon = originalLon.copy()
@@ -99,19 +213,21 @@ def generate_geotiff(satObj):
 
     dir_basename = str(os.path.basename(cube_path))
 
-    tiff_name = "geotiff2"
+    tiff_name = "-geotiff_full"
 
     geotiff_folder_path = os.path.join(os.path.abspath(
-        cube_path), dir_basename + '-geotiff2/')
+        cube_path), dir_basename + tiff_name+'/')
     output_path_band_tif_base = os.path.join(
-        os.path.abspath(cube_path), dir_basename + '-geotiff2/band_')
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/band_')
     output_path_rgb_tif = os.path.join(
-        os.path.abspath(cube_path), dir_basename + '-geotiff2/'+dir_basename+'-rgb.tif')
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-rgb.tif')
     output_path_rgba_tif = os.path.join(
-        os.path.abspath(cube_path), dir_basename + '-geotiff2/'+dir_basename+'-rgba_8bit.tif')
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-rgba_8bit.tif')
+    output_path_full_tif = os.path.join(
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-full.tif')
 
     output_path_geo_info = os.path.join(
-        dir_basename+'geometric-meta-info2.txt')
+        dir_basename+'geometric-meta-info-full.txt')
 
     print('  Projecting pixel geodetic to map ...')
     bbox_geodetic = [np.min(pixels_lat), np.max(
@@ -275,7 +391,10 @@ def generate_geotiff(satObj):
         pass
 
     extra_band_index = (g_band_index-4)//4
-    bands = [extra_band_index, r_band_index, g_band_index, b_band_index]
+
+    # TODO: Make full Cube 120 Bands
+    # bands = [extra_band_index, r_band_index, g_band_index, b_band_index]
+    bands = [i for i in range(120)]
     rgb_band_indices = [r_band_index, g_band_index, b_band_index]
     grid_data_all_bands = np.zeros([grid_dims[1], grid_dims[0], band_count])
     grid_data_all_bands_minimal = np.zeros(
@@ -335,6 +454,9 @@ def generate_geotiff(satObj):
         output_path_rgb_tif, grid_dims[0], grid_dims[1], 3, gdal.GDT_UInt16)
     dst_ds_alpha_channel = gdal.GetDriverByName('GTiff').Create(
         output_path_rgba_tif, grid_dims[0], grid_dims[1], 4, gdal.GDT_Byte)
+
+    dst_ds_full = gdal.GetDriverByName('GTiff').Create(
+        output_path_full_tif, grid_dims[0], grid_dims[1], 120, gdal.GDT_Float64)
 
     # xmin, ymin, xmax, ymax = [min(grid_points_minimal[:,0]), min(grid_points_minimal[:,1]), max(grid_points_minimal[:,0]), max(grid_points_minimal[:,1])]
     # xres = (xmax - xmin) / float(grid_dims_minimal[0])
@@ -397,11 +519,27 @@ def generate_geotiff(satObj):
     srs.ImportFromEPSG(destination_epsg)
     dst_ds_alpha_channel.SetProjection(
         srs.ExportToWkt())  # export coords to file
+
+    dst_ds_full.SetGeoTransform(geotransform)    # specify coords
+    srs = osr.SpatialReference()            # establish encoding
+    srs.ImportFromEPSG(destination_epsg)
+    dst_ds_full.SetProjection(
+        srs.ExportToWkt())  # export coords to file
+
+    # Only wrote RGB Before
     for i, rgb_band_index in enumerate(rgb_band_indices):
         dst_ds_alpha_channel.GetRasterBand(
             i+1).WriteArray(255.0*grid_data_all_bands[:, :, rgb_band_index] / max_value_rgb)
+
     dst_ds_alpha_channel.GetRasterBand(4).WriteArray(alpha_mask)
     dst_ds_alpha_channel.FlushCache()                  # write to disk
+
+    # Full Band Tiff
+    for i, band_index in enumerate(bands):
+        dst_ds_full.GetRasterBand(
+            i+1).WriteArray(grid_data_all_bands[:, :, band_index])
+
+    dst_ds_full.FlushCache()                  # write to disk
 
     print('Done')
 

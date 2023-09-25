@@ -8,6 +8,9 @@ import pandas as pd
 from datetime import datetime
 from importlib.resources import files
 import netCDF4 as nc
+import rasterio
+import cartopy.crs as ccrs
+import pyproj as prj
 
 from .radiometric import calibrate_cube, get_coefficients_from_file
 from .georeference import coordinate_correction, generate_geotiff
@@ -39,10 +42,13 @@ class Satellite:
         self.l1b_cube = calibrate_cube(
             self.info, self.rawcube, self.radiometric_coefficients)
 
-        # Create Geotiff (L1C)
-        # TODO:Get Projection Metadata From FunctionInstead of File
+        # Get projection from RGBA GeoTiff
         self.projection_metadata = self.get_projection_metadata(
             top_folder_name)
+
+        # Create Geotiff (L1C) and Correct Coordinate if .points file exists to get cube corrected
+        # WARNING: Old RGB and RGBa should not be used for Lat and Lon as they are wrong
+        self.generate_full_geotiff(top_folder_name)
 
         self.l2a_cube = None
 
@@ -235,10 +241,10 @@ class Satellite:
 
         return info
 
-    def get_projection_metadata(self, top_folder_name: str) -> dict:
+    def generate_full_geotiff(self, top_folder_name: str):
 
-        tiff_name = "geotiff2"
-        # Get .geotiff file from geotiff folder
+        tiff_name = "geotiff_full"
+
         geotiff_dir = [
             f.path
             for f in os.scandir(top_folder_name)
@@ -248,6 +254,10 @@ class Satellite:
         if len(geotiff_dir) != 0:
             geotiff_dir = geotiff_dir[0]
         else:
+            # Before Generating new Geotiff we check if .points file exists
+            self.manual_coordinate_correction(top_folder_name)
+
+            # Nowe we generate the geotiff with corrected lon and lat
             generate_geotiff(self)
             geotiff_dir = [
                 f.path
@@ -257,16 +267,37 @@ class Satellite:
             if len(geotiff_dir) != 0:
                 geotiff_dir = geotiff_dir[0]
             else:
-                raise Exception("Could not generate L1C GeoTiff")
+                raise Exception(
+                    "Could not create Full L1C GeoTiff Directory Found")
 
         self.geotiffFilePath = [
+            join(geotiff_dir, f)
+            for f in listdir(geotiff_dir)
+            if (isfile(join(geotiff_dir, f)) and ("-full" in f))
+        ][0]
+
+    def get_projection_metadata(self, top_folder_name: str) -> dict:
+
+        tiff_name = "geotiff"
+        geotiff_dir = [
+            f.path
+            for f in os.scandir(top_folder_name)
+            if (f.is_dir() and (tiff_name in os.path.basename(os.path.normpath(f))) and ("geotiff_full" not in os.path.basename(os.path.normpath(f))))
+        ]
+
+        if len(geotiff_dir) != 0:
+            geotiff_dir = geotiff_dir[0]
+        else:
+            raise Exception("No RGBA Tiff Directory Found")
+
+        self.rgbGeotiffFilePath = [
             join(geotiff_dir, f)
             for f in listdir(geotiff_dir)
             if (isfile(join(geotiff_dir, f)) and ("8bit" in f))
         ][0]
 
         # Load GeoTiff Metadata with gdal
-        ds = gdal.Open(self.geotiffFilePath)
+        ds = gdal.Open(self.rgbGeotiffFilePath)
         # Not hyperspectral, fewer bands
         data = ds.ReadAsArray()
         gt = ds.GetGeoTransform()
@@ -274,11 +305,17 @@ class Satellite:
         inproj = osr.SpatialReference()
         inproj.ImportFromWkt(proj)
 
+        boundbox = None
+        with rasterio.open(self.rgbGeotiffFilePath) as dataset:
+            crs = dataset.crs
+            boundbox = dataset.bounds
+
         return {
             "data": data,
             "gt": gt,
             "proj": proj,
             "inproj": inproj,
+            "boundbox": boundbox
         }
 
     def get_radiometric_coefficients_path(self) -> str:
@@ -291,7 +328,7 @@ class Satellite:
             'hypsoreader.radiometric').joinpath('data/spectral_bands_HYPSO-1_120bands.csv')
         return wl_file
 
-    def georeference_image(self, top_folder_name: str):
+    def manual_coordinate_correction(self, top_folder_name: str):
         # gcpPath = r"C:\Users\alvar\OneDrive\Desktop\karachi_2023-02-06_0531Z-bin3.png.points"225
         # lat_coeff, lon_coeff = reference_correction.geotiff_correction(gcpPath, self.projection_metadata)
         point_file = glob.glob(top_folder_name + '/*.points')
@@ -299,6 +336,101 @@ class Satellite:
         if len(point_file) == 0:
             print("Points File Was Not Found. No Correction done.")
         else:
+            print("Doing manual coordinate correction with .points file")
             self.info["lat"], self.info["lon"] = coordinate_correction(
                 point_file[0], self.projection_metadata,
                 self.info["lat"], self.info["lon"])
+
+    def get_spectra(self, position: list, postype: str = 'coord', multiplier=1):
+        '''
+        files_path: Works with a directorie with GeoTiff files. Uses the metadata, and integrated CRS
+        position:
+            [lat, lon] if postype=='coord'
+            [X, Y| if postype == 'pix'
+        postye:
+            'coord' assumes latitude and longitude are passed.
+            'pix' receives X and Y values
+        '''
+        # Read All GeoTiff files in Directory
+        # onlyfiles = natsorted([f for f in listdir(files_path)
+        #    if isfile(join(files_path, f))])
+
+        # To Store Data
+        spectra_data = []
+
+        # Get Columns Name
+        cols = ['lat', 'lon', 'X', 'Y']
+
+        for wl in self.wavelengths:
+            cols.append("wl"+str(np.round(wl, 2)).replace(".", "_"))
+
+        # Get Dataframe to Store
+        df_band = pd.DataFrame(columns=cols)
+
+        posX = None
+        posY = None
+        # Open the raster
+        with rasterio.open(self.geotiffFilePath) as dataset:
+            dataset_crs = dataset.crs
+            print("Dataset CRS: ", dataset_crs)
+
+            # Create Projection with Dataset CRS
+            dataset_proj = prj.Proj(dataset_crs)  # your data crs
+
+            # Find Corners of Image (For Development)
+            boundbox = dataset.bounds
+            left_bottom = dataset_proj(
+                boundbox[0], boundbox[1], inverse=True)
+            right_top = dataset_proj(
+                boundbox[2], boundbox[3], inverse=True)
+
+            if postype == 'coord':
+                # Get list to two variables
+                lat, lon = position
+                # Transform Coordinates to Image CRS
+                transformed_lon, transformed_lat = dataset_proj(
+                    lon, lat, inverse=False)
+                # Get pixel coordinates from map coordinates
+                posY, posX = dataset.index(
+                    transformed_lon, transformed_lat)
+                # Print Coordinate and Pixel Matching
+                print("(lat, lon) -→ (X, Y) : (%s, %s) -→ (%s, %s)" %
+                      (lat, lon, posX, posY))
+
+            elif postype == 'pix':
+                posX = int(position[0])
+                posY = int(position[1])
+
+                lon = dataset.xy(posX, posY)[0]
+                lat = dataset.xy(posX, posY)[1]
+
+                # Transform from the GeoTiff CRS
+                transformed_lon, transformed_lat = dataset_proj(
+                    lon, lat, inverse=True)
+
+                # Print Coordinate and Pixel Matching
+                print("(lat, lon) -→ (X, Y) : (%s, %s) -→ (%s, %s)" %
+                      (transformed_lat, transformed_lon, posX, posY))
+
+            # Window size is 1 for a Single Pixel
+            N = 1
+            # Build an NxN window
+            window = rasterio.windows.Window(
+                posX - (N // 2), posY - (N // 2), N, N)
+
+            # Read the data in the window
+            # clip is a nbands * N * N numpy array
+            clip = dataset.read(window=window)
+            clip = np.squeeze(clip)
+
+            # Append data to Array
+            # Multiplier for Values like Sentinel 2 which need 1/10000
+            spectra_data = clip * multiplier
+
+        # Add Lat, Lon, PosX and PosY to spectra data List
+        spectra_data = [transformed_lat,
+                        transformed_lon, posX, posY] + list(spectra_data)
+
+        df_band.loc[df_band.shape[0]] = spectra_data
+
+        return df_band
