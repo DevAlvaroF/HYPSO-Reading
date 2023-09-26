@@ -12,8 +12,8 @@ import rasterio
 import cartopy.crs as ccrs
 import pyproj as prj
 
-from .radiometric import calibrate_cube, get_coefficients_from_file
-from .georeference import coordinate_correction, generate_geotiff
+from .radiometric import calibrate_cube, get_coefficients_from_dict, get_coefficients_from_file
+from .georeference import start_coordinate_correction, generate_geotiff
 
 
 class Satellite:
@@ -28,10 +28,10 @@ class Satellite:
 
         self.rawcube = self.get_raw_cube(top_folder_name)
 
-        # Radiometric Coefficients
-        self.radiometric_coeff_file = self.get_radiometric_coefficients_path()
-        self.radiometric_coefficients = get_coefficients_from_file(
-            self.radiometric_coeff_file)
+        # Correction Coefficients
+        self.correction_coeffs_file_dict = self.get_correction_coefficients_path()
+        self.correction_coefficients_dict = get_coefficients_from_dict(
+            self.correction_coeffs_file_dict)
 
         # Wavelengths
         self.spectral_coeff_file = self.get_spectral_coefficients_path()
@@ -40,7 +40,7 @@ class Satellite:
         self.wavelengths = self.spectral_coefficients
 
         self.l1b_cube = calibrate_cube(
-            self.info, self.rawcube, self.radiometric_coefficients)
+            self.info, self.rawcube, self.correction_coefficients_dict)
 
         # Get projection from RGBA GeoTiff
         self.projection_metadata = self.get_projection_metadata(
@@ -48,7 +48,8 @@ class Satellite:
 
         # Create Geotiff (L1C) and Correct Coordinate if .points file exists to get cube corrected
         # WARNING: Old RGB and RGBa should not be used for Lat and Lon as they are wrong
-        self.generate_full_geotiff(top_folder_name)
+        self.projection_metadata = self.generate_full_geotiff(
+            top_folder_name)
 
         self.l2a_cube = None
 
@@ -193,6 +194,9 @@ class Satellite:
 
         self.spatialDim = (rows_img, cols_img)
 
+        print(
+            f"Processing *{info['capture_type']}* Image with Dimensions: {self.spatialDim}")
+
         # Find Coordinates of the Center of the Image
         # TODO get center lat from .dat lat lon files , average it
         pos_file = ""
@@ -242,6 +246,9 @@ class Satellite:
         return info
 
     def generate_full_geotiff(self, top_folder_name: str):
+        # Before Generating new Geotiff we check if .points file exists
+        self.info["lat"], self.info["lon"] = start_coordinate_correction(
+            top_folder_name, self.info, self.projection_metadata)
 
         tiff_name = "geotiff_full"
 
@@ -254,8 +261,6 @@ class Satellite:
         if len(geotiff_dir) != 0:
             geotiff_dir = geotiff_dir[0]
         else:
-            # Before Generating new Geotiff we check if .points file exists
-            self.manual_coordinate_correction(top_folder_name)
 
             # Nowe we generate the geotiff with corrected lon and lat
             generate_geotiff(self)
@@ -275,6 +280,27 @@ class Satellite:
             for f in listdir(geotiff_dir)
             if (isfile(join(geotiff_dir, f)) and ("-full" in f))
         ][0]
+
+        # Load GeoTiff Metadata with gdal
+        ds = gdal.Open(self.geotiffFilePath)
+        # Not hyperspectral, fewer bands
+        data = ds.ReadAsArray()
+        gt = ds.GetGeoTransform()
+        proj = ds.GetProjection()
+        inproj = osr.SpatialReference()
+        inproj.ImportFromWkt(proj)
+
+        boundbox = None
+        with rasterio.open(self.geotiffFilePath) as dataset:
+            crs = dataset.crs
+            boundbox = dataset.bounds
+
+        modified_project_metadata = self.projection_metadata.copy()
+        modified_project_metadata["data"] = data
+        modified_project_metadata["gt"] = gt
+        modified_project_metadata["proj"] = proj
+        modified_project_metadata["inproj"] = inproj
+        return modified_project_metadata
 
     def get_projection_metadata(self, top_folder_name: str) -> dict:
 
@@ -299,47 +325,60 @@ class Satellite:
         # Load GeoTiff Metadata with gdal
         ds = gdal.Open(self.rgbGeotiffFilePath)
         # Not hyperspectral, fewer bands
-        data = ds.ReadAsArray()
+        rgba_data = ds.ReadAsArray()
         gt = ds.GetGeoTransform()
         proj = ds.GetProjection()
         inproj = osr.SpatialReference()
         inproj.ImportFromWkt(proj)
 
         boundbox = None
+        crs = None
         with rasterio.open(self.rgbGeotiffFilePath) as dataset:
             crs = dataset.crs
             boundbox = dataset.bounds
 
         return {
-            "data": data,
+            "rgba_data": rgba_data,
             "gt": gt,
             "proj": proj,
             "inproj": inproj,
-            "boundbox": boundbox
+            "boundbox": boundbox,
+            "crs": str(crs).lower()
         }
 
-    def get_radiometric_coefficients_path(self) -> str:
-        coeff_file = files(
-            'hypsoreader.radiometric').joinpath('data/rad_coeffs_FM_binx9_2022_08_06_Finnmark_recal_a.csv')
-        return coeff_file
+    def get_correction_coefficients_path(self) -> dict:
+        csv_file_radiometric = None
+        csv_file_smile = None
+        csv_file_destriping = None
+
+        if self.info["capture_type"] == "nominal":
+            csv_file_radiometric = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
+            csv_file_smile = "smile_correction_matrix_HYPSO-1_nominal_v1.csv"
+            csv_file_destriping = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
+        elif self.info["capture_type"] == "wide":
+            csv_file_radiometric = "radiometric_calibration_matrix_HYPSO-1_wide_v1.csv"
+            csv_file_smile = "smile_correction_matrix_HYPSO-1_wide_v1.csv"
+            csv_file_destriping = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
+
+        rad_coeff_file = files(
+            'hypsoreader.radiometric').joinpath(f'data/{csv_file_radiometric}')
+
+        smile_coeff_file = files(
+            'hypsoreader.radiometric').joinpath(f'data/{csv_file_smile}')
+        destriping_coeff_file = files(
+            'hypsoreader.radiometric').joinpath(f'data/{csv_file_destriping}')
+
+        coeff_dict = {"radiometric": rad_coeff_file,
+                      "smile": smile_coeff_file,
+                      "destriping": destriping_coeff_file}
+
+        return coeff_dict
 
     def get_spectral_coefficients_path(self) -> str:
+        csv_file = "spectral_bands_HYPSO-1_v1.csv"
         wl_file = files(
-            'hypsoreader.radiometric').joinpath('data/spectral_bands_HYPSO-1_120bands.csv')
+            'hypsoreader.radiometric').joinpath(f'data/{csv_file}')
         return wl_file
-
-    def manual_coordinate_correction(self, top_folder_name: str):
-        # gcpPath = r"C:\Users\alvar\OneDrive\Desktop\karachi_2023-02-06_0531Z-bin3.png.points"225
-        # lat_coeff, lon_coeff = reference_correction.geotiff_correction(gcpPath, self.projection_metadata)
-        point_file = glob.glob(top_folder_name + '/*.points')
-
-        if len(point_file) == 0:
-            print("Points File Was Not Found. No Correction done.")
-        else:
-            print("Doing manual coordinate correction with .points file")
-            self.info["lat"], self.info["lon"] = coordinate_correction(
-                point_file[0], self.projection_metadata,
-                self.info["lat"], self.info["lon"])
 
     def get_spectra(self, position: list, postype: str = 'coord', multiplier=1):
         '''

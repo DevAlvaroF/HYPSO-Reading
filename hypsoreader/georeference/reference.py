@@ -15,12 +15,27 @@ import cartopy.crs as ccrs
 import math as m
 import threading
 import scipy.interpolate as si
-
+import glob
 # Custom library
 # lib_path = os.path.join(os.path.dirname(sys.argv[0]), 'hsi-postprocessing/lib')
 # sys.path.insert(0, lib_path)
 # import georef as gref
 from hypsoreader.georeference import georef as gref
+
+
+def start_coordinate_correction(top_folder_name: str, satinfo: dict, proj_metadata: dict):
+    point_file = glob.glob(top_folder_name + '/*.points')
+
+    if len(point_file) == 0:
+        print("Points File Was Not Found. No Correction done.")
+        return satinfo["lat"], satinfo["lon"]
+    else:
+        print("Doing manual coordinate correction with .points file")
+        lat, lon = coordinate_correction(
+            point_file[0], proj_metadata,
+            satinfo["lat"], satinfo["lon"])
+
+        return lat, lon
 
 
 def coordinate_correction_matrix(filename, projection_metadata):
@@ -43,8 +58,8 @@ def coordinate_correction_matrix(filename, projection_metadata):
         column_names = list(next(reader, None))
 
         # Get CRS
-        qgis_crs = 'epsg:3857'
-        hypso_crs = 'epsg:32642'
+        qgis_crs = 'epsg:3857'  # QGIS Also Uses as a Defaultb EPSG:4326 or EPSG:32617
+        hypso_crs = projection_metadata["crs"]  # 'epsg:32632'
 
         # Transformer from dataset crs to destination crs
         transformer_src_dest = prj.Transformer.from_crs(
@@ -227,7 +242,7 @@ def generate_geotiff(satObj):
         os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-full.tif')
 
     output_path_geo_info = os.path.join(
-        dir_basename+'geometric-meta-info-full.txt')
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-geometric-meta-info-full.txt')
 
     print('  Projecting pixel geodetic to map ...')
     bbox_geodetic = [np.min(pixels_lat), np.max(
@@ -260,6 +275,15 @@ def generate_geotiff(satObj):
     boundingpath = mplpath.Path(dg_bounding_path)
 
     boundingpath_area = sg.Polygon(dg_bounding_path).area
+
+    # Make Dir To export
+    isExist = os.path.exists(os.path.join(
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'))
+    if not isExist:
+        # Create a new directory because it does not exist
+        os.makedirs(os.path.join(
+            os.path.abspath(cube_path), dir_basename + tiff_name+'/'))
+
     with open(output_path_geo_info, 'a') as f:
         f.write(
             f'Imaged area (square kilometers): {boundingpath_area/1000000.0:09.5f}\n')
@@ -314,7 +338,9 @@ def generate_geotiff(satObj):
     plt.legend()
     plt.xlabel('Pixel index')
     plt.ylabel('Distance [m]')
-    plt.savefig('gsd.svg')
+    plot_save_path = os.path.join(
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-gsd.svg')
+    plt.savefig(plot_save_path)
     # plt.show()
 
     # exit(1)

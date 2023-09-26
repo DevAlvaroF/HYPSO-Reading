@@ -80,8 +80,10 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
         f.publisher_url = "https://hypso.space"
         # f.publisher_contact = "smallsat@ntnu.no"
         f.processing_level = "L1B"
-        f.radiometric_file = h1.rad_file
-        f.spectral_file = h1.spec_file
+        f.radiometric_file = str(h1.correction_coeffs_file_dict["radiometric"])
+        f.smile_file = str(h1.correction_coeffs_file_dict["smile"])
+        f.destriping_file = str(h1.correction_coeffs_file_dict["destriping"])
+        f.spectral_file = str(h1.spectral_coeff_file)
         # Create dimensions
         f.createDimension('frames', frames)
         f.createDimension('lines', lines)
@@ -190,7 +192,7 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
         Lt.long_name = "Top of Atmosphere Measured Radiance"
         Lt.wavelength_units = "nanometers"
         Lt.fwhm = [5.5] * bands
-        Lt.wavelengths = np.around(h1.spec_coefficients, 1)
+        Lt.wavelengths = np.around(h1.spectral_coefficients, 1)
         Lt[:] = h1.l1b_cube
 
         # NASA scan_lines_attributes:
@@ -233,7 +235,11 @@ def write_h1data_as_NetCDF4(sat_object, path_to_save: str) -> None:
         meta_hypso_calib_group.hypso_orientation_from_quaternion = '+XVV'
 
 
-def print_nc(nc_file, path='', depth=0):
+def print_nc(nc_file_path):
+    recursive_print_nc(nc.Dataset(nc_file_path, format="NETCDF4"))
+
+
+def recursive_print_nc(nc_file, path='', depth=0):
 
     indent = ''
     for i in range(depth):
@@ -266,7 +272,7 @@ def print_nc(nc_file, path='', depth=0):
             newname = path + nc_file.name
         else:
             newname = path + nc_file.name + '/'
-        print_nc(nc_file.groups[g], path=newname, depth=depth + 1)
+        recursive_print_nc(nc_file.groups[g], path=newname, depth=depth + 1)
 
 
 # For Exporting on different Format
@@ -336,3 +342,31 @@ def get_geojson_dict(sat_object) -> dict:
     geojsondict["metadata"]["sat_azimuth_angle"] = sat_object.info["sat_azimuth_angle"]
 
     return geojsondict
+
+
+def get_nav_and_view(path_to_h1data):
+    is_nav_data_available = False
+    for file in os.listdir(path_to_h1data):
+        if "sat-azimuth.dat" in file:
+            sata = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+            is_nav_data_available = True
+        elif "sat-zenith.dat" in file:
+            satz = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+        elif "sun-azimuth.dat" in file:
+            suna = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+        elif "sun-zenith.dat" in file:
+            sunz = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+        elif "latitudes.dat" in file:
+            lat = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+        elif "longitudes.dat" in file:
+            lon = np.fromfile(os.path.join(
+                path_to_h1data, file), dtype=np.float32)
+
+    if not is_nav_data_available:
+        raise ValueError("Navigation data is not available.")
+    return sata, satz, suna, sunz, lat, lon
