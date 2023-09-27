@@ -12,7 +12,7 @@ import rasterio
 import cartopy.crs as ccrs
 import pyproj as prj
 
-from .radiometric import calibrate_cube, get_coefficients_from_dict, get_coefficients_from_file
+from .calibration import calibrate_cube, get_coefficients_from_dict, get_coefficients_from_file, smile_correct_cube, destriping_correct_cube
 from .georeference import start_coordinate_correction, generate_geotiff
 
 
@@ -28,21 +28,21 @@ class Satellite:
 
         self.rawcube = self.get_raw_cube(top_folder_name)
 
-        # Correction Coefficients
-        self.correction_coeffs_file_dict = self.get_correction_coefficients_path()
-        self.correction_coefficients_dict = get_coefficients_from_dict(
-            self.correction_coeffs_file_dict)
+        # Correction Coefficients ----------------------------------------
+        self.calibration_coeffs_file_dict = self.get_calibration_coefficients_path()
+        self.calibration_coefficients_dict = get_coefficients_from_dict(
+            self.calibration_coeffs_file_dict)
 
-        # Wavelengths
+        # Wavelengths -----------------------------------------------------
         self.spectral_coeff_file = self.get_spectral_coefficients_path()
         self.spectral_coefficients = get_coefficients_from_file(
             self.spectral_coeff_file)
         self.wavelengths = self.spectral_coefficients
 
-        self.l1b_cube = calibrate_cube(
-            self.info, self.rawcube, self.correction_coefficients_dict)
+        # Calibrate and Correct Cube ----------------------------------------
+        self.l1b_cube = self.get_calibrated_and_corrected_cube()
 
-        # Get projection from RGBA GeoTiff
+        # Get projection from RGBA GeoTiff----------------------------------------
         self.projection_metadata = self.get_projection_metadata(
             top_folder_name)
 
@@ -52,6 +52,9 @@ class Satellite:
             top_folder_name)
 
         self.l2a_cube = None
+
+        # Generated afterwards
+        self.waterMask = None
 
     def get_raw_cube(self, top_folder_name) -> np.ndarray:
         # find file ending in .bip
@@ -346,7 +349,7 @@ class Satellite:
             "crs": str(crs).lower()
         }
 
-    def get_correction_coefficients_path(self) -> dict:
+    def get_calibration_coefficients_path(self) -> dict:
         csv_file_radiometric = None
         csv_file_smile = None
         csv_file_destriping = None
@@ -354,19 +357,19 @@ class Satellite:
         if self.info["capture_type"] == "nominal":
             csv_file_radiometric = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
             csv_file_smile = "smile_correction_matrix_HYPSO-1_nominal_v1.csv"
-            csv_file_destriping = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
+            csv_file_destriping = "destriping_matrix_HYPSO-1_nominal_v1.csv"
         elif self.info["capture_type"] == "wide":
             csv_file_radiometric = "radiometric_calibration_matrix_HYPSO-1_wide_v1.csv"
             csv_file_smile = "smile_correction_matrix_HYPSO-1_wide_v1.csv"
-            csv_file_destriping = "radiometric_calibration_matrix_HYPSO-1_nominal_v1.csv"
+            csv_file_destriping = "destriping_matrix_HYPSO-1_wide_v1.csv"
 
         rad_coeff_file = files(
-            'hypsoreader.radiometric').joinpath(f'data/{csv_file_radiometric}')
+            'hypsoreader.calibration').joinpath(f'data/{csv_file_radiometric}')
 
         smile_coeff_file = files(
-            'hypsoreader.radiometric').joinpath(f'data/{csv_file_smile}')
+            'hypsoreader.calibration').joinpath(f'data/{csv_file_smile}')
         destriping_coeff_file = files(
-            'hypsoreader.radiometric').joinpath(f'data/{csv_file_destriping}')
+            'hypsoreader.calibration').joinpath(f'data/{csv_file_destriping}')
 
         coeff_dict = {"radiometric": rad_coeff_file,
                       "smile": smile_coeff_file,
@@ -377,10 +380,10 @@ class Satellite:
     def get_spectral_coefficients_path(self) -> str:
         csv_file = "spectral_bands_HYPSO-1_v1.csv"
         wl_file = files(
-            'hypsoreader.radiometric').joinpath(f'data/{csv_file}')
+            'hypsoreader.calibration').joinpath(f'data/{csv_file}')
         return wl_file
 
-    def get_spectra(self, position: list, postype: str = 'coord', multiplier=1):
+    def get_spectra(self, position: list, postype: str = 'coord', multiplier=1, filename=None):
         '''
         files_path: Works with a directorie with GeoTiff files. Uses the metadata, and integrated CRS
         position:
@@ -466,10 +469,42 @@ class Satellite:
             # Multiplier for Values like Sentinel 2 which need 1/10000
             spectra_data = clip * multiplier
 
-        # Add Lat, Lon, PosX and PosY to spectra data List
-        spectra_data = [transformed_lat,
-                        transformed_lon, posX, posY] + list(spectra_data)
+        # print(spectra_data)
+        # # Add Lat, Lon, PosX and PosY to spectra data List
+        # spectra_data = [transformed_lat,
+        #                 transformed_lon, posX, posY] + list(spectra_data)
 
+        spectra_data = [lat,
+                        lon, posX, posY] + list(spectra_data)
         df_band.loc[df_band.shape[0]] = spectra_data
 
+        if filename != None:
+            df_band.to_csv(filename, index=False)
+
         return df_band
+
+    def get_calibrated_and_corrected_cube(self):
+        ''' Calibrate cube.
+
+        Includes:
+        - Radiometric calibration
+        - Smile correction
+        - Destriping
+
+        Assumes all coefficients has been adjusted to the frame size (cropped and
+        binned), and that the data cube contains 12-bit values.
+        '''
+
+        # Radiometric calibration
+        cube_calibrated = calibrate_cube(
+            self.info, self.rawcube, self.calibration_coefficients_dict)
+
+        # Smile correction
+        cube_smile_corrected = smile_correct_cube(
+            cube_calibrated, self.calibration_coefficients_dict)
+
+        # Destriping
+        cube_destriped = destriping_correct_cube(
+            cube_smile_corrected, self.calibration_coefficients_dict)
+
+        return cube_destriped

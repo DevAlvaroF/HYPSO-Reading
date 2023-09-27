@@ -76,5 +76,15 @@ Smile correction:
 
 
 Destriping correction:
+- Nominal capture (684 pixels x 120 bands)
+    - Filename from script: n/a
+    - Filename used: destriping_matrix_HYPSO-1_nominal_v1
+    - based off lacrau_2023-09-09
+    - compute along-track derivative after log transform over water pixels, for multiplicative correction
+- Wide capture (1092 pixels x 120 bands)
+    - Filename from script: n/a
+    - Filename used: destriping_matrix_HYPSO-1_wide_v1
+    - based off finnmark_2022-08-06_1035Z
+
 
 ---------------------------------------

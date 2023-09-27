@@ -190,6 +190,196 @@ def coordinate_correction(point_file, projection_metadata, originalLat, original
     return finalLat, finalLon
 
 
+def array_to_geotiff(satObj, single_frame_array, file_name='custom_band'):
+    if len(single_frame_array.shape) == 2:
+        single_frame_array = np.expand_dims(single_frame_array, axis=2)
+
+    # Setting some default values
+
+    frame_count = satObj.info["frame_count"]
+    hypso_height = satObj.info["image_height"]
+    hypso_height_sensor = 1216
+
+    hypso_width = 120
+    hypso_width_sensor = 1936
+
+    # HAndling arguments
+    pixels_lat = satObj.info["lat"]
+    pixels_lon = satObj.info["lon"]
+    cube_path = satObj.info["top_folder_name"]
+
+    # Setup
+    pixels_lat.shape = (frame_count, hypso_height)
+    pixels_lon.shape = (frame_count, hypso_height)
+
+    dir_basename = str(os.path.basename(cube_path))
+
+    tiff_name = "-geotiff_full"
+
+    output_path_tif = os.path.join(
+        os.path.abspath(cube_path), dir_basename + tiff_name+'/'+dir_basename+'-'+file_name+'.tif')
+
+    print('  Projecting pixel geodetic to map ...')
+    bbox_geodetic = [np.min(pixels_lat), np.max(
+        pixels_lat), np.min(pixels_lon), np.max(pixels_lon)]
+    print('   ', bbox_geodetic)
+    utm_crs_list = prj.database.query_utm_crs_info(datum_name="WGS 84",
+                                                   area_of_interest=prj.aoi.AreaOfInterest(west_lon_degree=bbox_geodetic[2], south_lat_degree=bbox_geodetic[0], east_lon_degree=bbox_geodetic[3], north_lat_degree=bbox_geodetic[1],))
+    print(f'    using UTM map: ' +
+          utm_crs_list[0].name, 'EPSG:', utm_crs_list[0].code)
+
+    # crs_25832 = prj.CRS.from_epsg(25832) # UTM32N
+    # crs_32717 = prj.CRS.from_epsg(32717) # UTM17S
+    crs_4326 = prj.CRS.from_epsg(4326)  # Unprojected [(lat,lon), probably]
+    source_crs = crs_4326
+    destination_epsg = int(utm_crs_list[0].code)
+    destination_crs = prj.CRS.from_epsg(destination_epsg)
+    # latlon_to_proj.transform(lat,lon) returns (east, north)
+    latlon_to_proj = prj.Transformer.from_crs(source_crs, destination_crs)
+    # proj_to_latlon = prj.Transformer.from_crs(destination_crs, source_crs)
+
+    pixel_coords_map = np.zeros([frame_count, hypso_height, 2])
+    for i in range(frame_count):
+        for j in range(hypso_height):
+            pixel_coords_map[i, j, :] = latlon_to_proj.transform(
+                pixels_lat[i, j], pixels_lon[i, j])
+
+    dg_bounding_path = np.concatenate(
+        (pixel_coords_map[:, 0, :], pixel_coords_map[::-1, (hypso_height-1), :]))
+    # this is the Direct Georeferencing outline
+    boundingpath = mplpath.Path(dg_bounding_path)
+
+    boundingpath_area = sg.Polygon(dg_bounding_path).area
+
+    # time line x and y differences
+    a = np.diff(pixel_coords_map[:, hypso_height//2, 0])
+    b = np.diff(pixel_coords_map[:, hypso_height//2, 1])
+    along_track_gsd = np.sqrt(a*a + b*b)
+    along_track_mean_gsd = np.mean(along_track_gsd)
+
+    # detector line x and y differences
+    a = np.diff(pixel_coords_map[frame_count//2, :, 0])
+    b = np.diff(pixel_coords_map[frame_count//2, :, 1])
+    across_track_gsd = np.sqrt(a*a + b*b)
+    across_track_mean_gsd = np.mean(across_track_gsd)
+
+    # adjust resolutions
+    resolution_scaling = 0.75  # lower value, higher res
+    resolution_scaling_along = 0.9*resolution_scaling
+    resolution_scaling_across = 1.0*resolution_scaling
+
+    pixel_coords_map_list = pixel_coords_map.reshape(
+        frame_count*hypso_height, 2)
+    bbox = [np.min(pixel_coords_map_list[:, 0]), np.max(pixel_coords_map_list[:, 0]), np.min(
+        pixel_coords_map_list[:, 1]), np.max(pixel_coords_map_list[:, 1])]
+    min_area_bbox = gref.minimum_bounding_rectangle(pixel_coords_map_list)
+    # print(bbox)
+    # print(min_area_bbox)
+
+    grid_points, grid_dims = gref.gen_resample_grid(
+        across_track_mean_gsd*resolution_scaling_across, along_track_mean_gsd*resolution_scaling_along, bbox)
+    # print(grid_points.shape)
+    # print(grid_points)
+
+    grid_points_minimal, grid_dims_minimal = gref.gen_resample_grid_bbox_min(
+        across_track_mean_gsd*resolution_scaling_across, along_track_mean_gsd*resolution_scaling_along, min_area_bbox)
+
+    grid_points_minimal.shape = (grid_dims_minimal[1]*grid_dims_minimal[0], 2)
+    grid_points.shape = [grid_dims[1]*grid_dims[0], 2]
+
+    print('  Grid points inside bounding polygon ...')
+    # contain mask to set some datapoints to zero
+    contain_mask = boundingpath.contains_points(grid_points)
+    print(
+        f'    Points inside boundary: {np.sum(contain_mask)} / {grid_dims[1]*grid_dims[0]}')
+
+    print('  Registration, aka rectification, aka resampling, aka gridding ...')
+
+    band_count = 1  # Single frame
+    cube_data = single_frame_array
+
+    bands = [0]  # Single frame
+
+    grid_data_all_bands = np.zeros([grid_dims[1], grid_dims[0], band_count])
+
+    resampling_method = 'nearest'
+
+    geotiff_info = (
+        grid_dims,
+        [bbox[1], bbox[2]],
+        [across_track_mean_gsd*resolution_scaling_across,
+            along_track_mean_gsd*resolution_scaling_along],
+        destination_epsg,
+        output_path_tif
+    )
+    threads_list = []
+
+    # Multithreading in python info
+    # https://www.tutorialspoint.com/python/python_multithreading.htm
+    # https://realpython.com/intro-to-python-threading/
+
+    for band_number in bands:
+        args = (band_number, cube_data, pixel_coords_map_list, grid_points,
+                resampling_method, contain_mask, geotiff_info, grid_data_all_bands)
+        x = threading.Thread(target=interpolate_geotiff, args=args)
+        x.start()
+        threads_list.append(x)
+
+    # Waiting until all threads are done
+    for t in threads_list:
+        t.join()
+
+    dst_ds_single = gdal.GetDriverByName('GTiff').Create(
+        output_path_tif, grid_dims[0], grid_dims[1], 2, gdal.GDT_Byte)  # For Classes and Alpha
+
+    angle = -10*m.pi/180.0
+    rotation = np.array([[m.cos(angle), m.sin(angle)],
+                        [-m.sin(angle), m.cos(angle)]])
+    scaling = np.array([[across_track_mean_gsd*resolution_scaling_across, 0],
+                       [0, -along_track_mean_gsd*resolution_scaling_along]])
+    affine_matrix = np.matmul(scaling, rotation)
+    geotransform = (grid_points_minimal[0, 0], affine_matrix[0, 0], affine_matrix[0, 1],
+                    grid_points_minimal[0, 1], affine_matrix[1, 0], affine_matrix[1, 1])
+
+    # dst_ds_minimal.SetGeoTransform(geotransform)    # specify coords
+    # srs = osr.SpatialReference()            # establish encoding
+    # srs.ImportFromEPSG(destination_epsg)
+    # dst_ds_minimal.SetProjection(srs.ExportToWkt()) # export coords to file
+    # for i, rgb_band_index in enumerate(rgb_band_indices):
+    #    dst_ds_minimal.GetRasterBand(i+1).WriteArray(grid_data_all_bands_minimal[:,:,rgb_band_index])
+    # dst_ds_minimal.FlushCache()                     # write to disk
+
+    angle = 180*m.pi/180.0
+    rotation = np.array([[m.cos(angle), m.sin(angle)],
+                        [-m.sin(angle), m.cos(angle)]])
+    scaling = np.array([[across_track_mean_gsd*resolution_scaling_across, 0],
+                       [0, -along_track_mean_gsd*resolution_scaling_along]])
+    affine_matrix = np.matmul(scaling, rotation)
+    # geotransform = (bbox[0], affine_matrix[0,0], affine_matrix[0,1], bbox[3], affine_matrix[1,0], affine_matrix[1,1])
+    geotransform = (bbox[1], -across_track_mean_gsd*resolution_scaling_across,
+                    0, bbox[2], 0, along_track_mean_gsd*resolution_scaling_along)
+
+    # RGBA -------------------------------------------------------
+    # Alpha mask for transparency in the RGBA geotiff
+    alpha_mask = np.zeros([grid_dims[1], grid_dims[0]])
+    alpha_mask.shape = [grid_dims[1]*grid_dims[0]]
+    alpha_mask[contain_mask] = 255
+    alpha_mask.shape = [grid_dims[1], grid_dims[0]]
+    alpha_mask = alpha_mask[:, ::-1]
+
+    dst_ds_single.SetGeoTransform(geotransform)    # specify coords
+    srs = osr.SpatialReference()            # establish encoding
+    srs.ImportFromEPSG(destination_epsg)
+    dst_ds_single.SetProjection(
+        srs.ExportToWkt())  # export coords to file
+
+    dst_ds_single.GetRasterBand(1).WriteArray(
+        255.0*grid_data_all_bands[:, :, 0])
+
+    dst_ds_single.GetRasterBand(2).WriteArray(alpha_mask)
+    dst_ds_single.FlushCache()                  # write to disk
+
+
 def generate_geotiff(satObj):
     print('Generating Geotiff')
     print('  This script requires three arguments:')
@@ -418,7 +608,6 @@ def generate_geotiff(satObj):
 
     extra_band_index = (g_band_index-4)//4
 
-    # TODO: Make full Cube 120 Bands
     # bands = [extra_band_index, r_band_index, g_band_index, b_band_index]
     bands = [i for i in range(120)]
     rgb_band_indices = [r_band_index, g_band_index, b_band_index]
@@ -524,6 +713,7 @@ def generate_geotiff(satObj):
     geotransform = (bbox[1], -across_track_mean_gsd*resolution_scaling_across,
                     0, bbox[2], 0, along_track_mean_gsd*resolution_scaling_along)
 
+    # RGB ------------------------------------------------------
     dst_ds.SetGeoTransform(geotransform)    # specify coords
     srs = osr.SpatialReference()            # establish encoding
     srs.ImportFromEPSG(destination_epsg)
@@ -533,6 +723,7 @@ def generate_geotiff(satObj):
             i+1).WriteArray(grid_data_all_bands[:, :, rgb_band_index])
     dst_ds.FlushCache()                  # write to disk
 
+    # RGBA -------------------------------------------------------
     # Alpha mask for transparency in the RGBA geotiff
     alpha_mask = np.zeros([grid_dims[1], grid_dims[0]])
     alpha_mask.shape = [grid_dims[1]*grid_dims[0]]
@@ -546,13 +737,6 @@ def generate_geotiff(satObj):
     dst_ds_alpha_channel.SetProjection(
         srs.ExportToWkt())  # export coords to file
 
-    dst_ds_full.SetGeoTransform(geotransform)    # specify coords
-    srs = osr.SpatialReference()            # establish encoding
-    srs.ImportFromEPSG(destination_epsg)
-    dst_ds_full.SetProjection(
-        srs.ExportToWkt())  # export coords to file
-
-    # Only wrote RGB Before
     for i, rgb_band_index in enumerate(rgb_band_indices):
         dst_ds_alpha_channel.GetRasterBand(
             i+1).WriteArray(255.0*grid_data_all_bands[:, :, rgb_band_index] / max_value_rgb)
@@ -560,7 +744,13 @@ def generate_geotiff(satObj):
     dst_ds_alpha_channel.GetRasterBand(4).WriteArray(alpha_mask)
     dst_ds_alpha_channel.FlushCache()                  # write to disk
 
-    # Full Band Tiff
+    # Full Band Tiff --------------------------------
+    dst_ds_full.SetGeoTransform(geotransform)    # specify coords
+    srs = osr.SpatialReference()            # establish encoding
+    srs.ImportFromEPSG(destination_epsg)
+    dst_ds_full.SetProjection(
+        srs.ExportToWkt())  # export coords to file
+
     for i, band_index in enumerate(bands):
         dst_ds_full.GetRasterBand(
             i+1).WriteArray(grid_data_all_bands[:, :, band_index])
@@ -594,9 +784,10 @@ def interpolate_geotiff(band_number, cube_data, pixel_coords_map_list, grid_poin
     grid_data_single_band = grid_data_single_band[:, ::-1]
     grid_data_all_bands[:, :, band_number] = grid_data_single_band
 
-    # export_single_band_geotiff(filename, raster_data, grid_dims, grid_res, grid_epsg):
-    export_single_band_geotiff(f'{geotiff_info[4]}{band_number}.tif', grid_data_single_band,
-                               geotiff_info[0], geotiff_info[1], geotiff_info[2], geotiff_info[3])
+    if cube_data.shape[2] != 1:  # For single band export does not export this band
+        # export_single_band_geotiff(filename, raster_data, grid_dims, grid_res, grid_epsg):
+        export_single_band_geotiff(f'{geotiff_info[4]}{band_number}.tif', grid_data_single_band,
+                                   geotiff_info[0], geotiff_info[1], geotiff_info[2], geotiff_info[3])
     print(f'      Done with band {band_number}')
 
 

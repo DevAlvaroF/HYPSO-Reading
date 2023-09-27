@@ -7,42 +7,46 @@ from importlib.resources import files
 
 def ndwi_watermask(sat_obj):
 
-    if sat_obj.l2_cube is None:
-        print("L2 Atmospheric Correction Cube Needed")
+    cube_selected = None
+    if sat_obj.l2a_cube is None:
+        print("L2 Atmospheric Correction Cube Not Found. L1B will be used")
+        cube_selected = sat_obj.l1b_cube
 
     else:
-        print("\n\n-------  Naive-Bayes Water Mask Detector  ----------")
+        cube_selected = sat_obj.l2a_cube
 
-        water_config_file = files(
-            'hypsoreader.classification').joinpath('WaterDetect/WaterDetect.ini')
+    print("\n\n-------  Naive-Bayes Water Mask Detector  ----------")
 
-        config = wd.DWConfig(config_file=water_config_file)
-        print(config.clustering_bands)
-        print(config.detect_water_cluster)
+    water_config_file = files(
+        'hypsoreader.classification').joinpath('WaterDetect/WaterDetect.ini')
 
-        # Band 3 in Sentinel-2 is centered at 560nm with a FWHM: 34.798nm
-        # Band 560.6854258053552 at index 49 is the closes Hypso equivalent
-        b3 = sat_obj.l2_cube[:, :, 49]
+    config = wd.DWConfig(config_file=water_config_file)
+    print(config.clustering_bands)
+    print(config.detect_water_cluster)
 
-        # Band 8 in Sentinel-2 is NIR centered at 835nm with a FWHM: 104.784n8
-        # Hypso last 2 bands (maybe noisy) are at 799.10546171nm & 802.51814719nm at index 118 and 119
-        nir = sat_obj.l2_cube[:, :, 118]
+    # Band 3 in Sentinel-2 is centered at 560nm with a FWHM: 34.798nm
+    # Band 560.6854258053552 at index 49 is the closes Hypso equivalent
+    b3 = cube_selected[:, :, 49]
 
-        # Division by 10000 may not be needed
-        bands = {'Green': b3, 'Nir': nir}
-        wmask = wd.DWImageClustering(bands=bands, bands_keys=[
-            'Nir', 'ndwi'], invalid_mask=None, config=config)
+    # Band 8 in Sentinel-2 is NIR centered at 835nm with a FWHM: 104.784n8
+    # Hypso last 2 bands (maybe noisy) are at 799.10546171nm & 802.51814719nm at index 118 and 119
+    nir = cube_selected[:, :, 118]
 
-        mask = wmask.run_detect_water()
+    # Division by 10000 may not be needed
+    bands = {'Green': b3, 'Nir': nir}
+    wmask = wd.DWImageClustering(bands=bands, bands_keys=[
+        'Nir', 'ndwi'], invalid_mask=None, config=config)
 
-        mask = wmask.water_mask
+    mask = wmask.run_detect_water()
 
-        # Mask Adjustment
-        boolMask = mask.copy()
-        boolMask[boolMask != 1] = 0
-        boolMask = boolMask.astype(bool)
+    mask = wmask.water_mask
 
-        sat_obj.waterMask = boolMask
+    # Mask Adjustment
+    boolMask = mask.copy()
+    boolMask[boolMask != 1] = 0
+    boolMask = boolMask.astype(bool)
+
+    sat_obj.waterMask = boolMask
 
 
 def threshold_watermask(sat_obj, threshold_val=2.9):
